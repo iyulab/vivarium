@@ -2,7 +2,7 @@
 
 > Sandboxed runtime for AI-generated UI — render generated code safely, with stable element identity and inspection built in.
 
-**Status: design phase (pre-0.1).** This document is the project's anchor: it fixes purpose, scope, and the small set of principles that implementation must honor. Everything else is open.
+**Status: core implemented (pre-0.1).** This document is the project's anchor: it fixes purpose, scope, and the small set of principles that implementation must honor. The sandbox core, capability bridge, stable identity layer, execution profiles, and the [edit context contract](docs/edit-context.md) are implemented and covered by unit + real-browser e2e tests.
 
 ---
 
@@ -42,15 +42,24 @@ These are the anchors. An implementation that violates one of these is not Vivar
 4. **The edit context is a public contract.** Its shape is versioned and documented, because external tools (agents, editors, tests) depend on it.
 5. **Generation-to-render is measured in seconds.** Any design that reintroduces an offline build step between "the agent wrote code" and "the user sees it" is a regression.
 
+## Decided in v0
+
+- Isolation: a sandboxed iframe (opaque origin, `allow-scripts` only) with a
+  `default-src 'none'` document CSP — network egress is closed; the bridge is
+  the only channel.
+- Bridge: JSON-RPC 2.0 over postMessage; capabilities surface as enumerable
+  `cap:<name>` methods granted by the host.
+- Generated code: ES modules, default-exporting `mount(root, api)`. Execution
+  profiles are pluggable data (embedded module import map + host-side source
+  transform); the reference profile is React + TSX via Sucrase.
+- Identity: deterministic structural ids (`viv:tag[n]/…`), authored
+  `data-viv-id` preserved with descendants anchored under it.
+- Edit context: versioned public contract — see [docs/edit-context.md](docs/edit-context.md).
+
 ## Deliberately undecided
 
-Left to implementation, benchmarks, and ADRs — not fixed here:
-
-- The isolation mechanism (iframe, worker, SES/ShadowRealm, or a combination)
-- The language/framework of generated code (JSX/TSX is the working assumption, not a commitment)
-- How much of the primitive surface ships in-core vs. as host-provided extensions
-- The transport and RPC shape of the capability bridge
 - Whether and how third-party component whitelisting works
+- State handover across re-renders (the unmount path exists; re-render does not yet offer the outgoing module a save opportunity)
 
 ## Relationship to the Vivarium family
 
