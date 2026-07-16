@@ -16,9 +16,14 @@ import { createHostBridge } from "../bridge/lifecycle.ts";
 import type { HostBridge, UnmountResult } from "../bridge/lifecycle.ts";
 import type { CapabilityRegistry } from "../bridge/capabilities.ts";
 import { createBootstrapHtml } from "./bootstrap.ts";
+import { buildEditContext } from "../inspect/edit-context.ts";
+import type { EditContext, ElementDescriptor } from "../inspect/edit-context.ts";
 
 export const METHOD_RENDER = "vivarium/render";
 export const METHOD_INSPECT_IDS = "vivarium/inspect.ids";
+export const METHOD_INSPECT_DESCRIBE = "vivarium/inspect.describe";
+export const METHOD_SELECTION_SET = "vivarium/selection.set";
+export const NOTIFICATION_SELECTION_CHANGED = "vivarium/selection.changed";
 
 export interface ElementIdEntry {
   id: string;
@@ -53,6 +58,8 @@ export interface SandboxContainerElement {
 export interface SandboxProfile {
   /** Profile identifier, e.g. "react-tsx@0". Surfaced for audit/debugging. */
   name: string;
+  /** Source language of generated code (e.g. "tsx"). Reported in the edit context. Default "js". */
+  language?: string;
   /** Bare specifier → ES module source, resolved inside the sandbox via an embedded import map. */
   modules?: Record<string, string>;
   /** Host-side source-to-source transform applied before render (e.g. TSX → JS). */
@@ -80,6 +87,18 @@ export interface SandboxHandle {
   requestUnmount(): Promise<UnmountResult>;
   /** Enumerate the stable ids of every element currently rendered. */
   listIds(): Promise<ElementIdEntry[]>;
+  /** Describe elements by stable id (tag + screen-derived text/attributes). */
+  describeElements(ids: string[]): Promise<ElementDescriptor[]>;
+  /** Toggle click-to-select inside the sandbox. */
+  setSelectionMode(enabled: boolean): Promise<void>;
+  /** Subscribe to selections made inside the sandbox. Returns unsubscribe. */
+  onSelectionChanged(listener: (element: ElementDescriptor) => void): () => void;
+  /**
+   * Assemble the versioned edit context (public contract, fixed principle 4)
+   * for the given selected ids: structural selection + full screen id list +
+   * backing source, with screen-derived content separated as untrusted data.
+   */
+  createEditContext(selectedIds: string[]): Promise<EditContext>;
   /** Tear down bridge and iframe. The handle is unusable afterwards. */
   destroy(): void;
 }
@@ -124,6 +143,12 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
   });
 
   let destroyed = false;
+  let lastSource: { language: string; code: string } | null = null;
+  const selectionListeners = new Set<(element: ElementDescriptor) => void>();
+
+  bridge.endpoint.expose(NOTIFICATION_SELECTION_CHANGED, (params) => {
+    for (const listener of [...selectionListeners]) listener(params as ElementDescriptor);
+  });
 
   return {
     iframe,
@@ -137,6 +162,9 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
       const finalCode = transform ? transform(code) : code;
       await ready;
       await bridge.endpoint.request(METHOD_RENDER, { code: finalCode });
+      // Recorded only after a successful render: the edit context must
+      // describe the source actually backing the screen.
+      lastSource = { language: options.profile?.language ?? "js", code };
     },
     async requestUnmount(): Promise<UnmountResult> {
       if (destroyed) throw new Error("sandbox is destroyed");
@@ -147,6 +175,34 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
       if (destroyed) throw new Error("sandbox is destroyed");
       await ready;
       return (await bridge.endpoint.request(METHOD_INSPECT_IDS)) as ElementIdEntry[];
+    },
+    async describeElements(ids: string[]): Promise<ElementDescriptor[]> {
+      if (destroyed) throw new Error("sandbox is destroyed");
+      await ready;
+      return (await bridge.endpoint.request(METHOD_INSPECT_DESCRIBE, { ids })) as ElementDescriptor[];
+    },
+    async setSelectionMode(enabled: boolean): Promise<void> {
+      if (destroyed) throw new Error("sandbox is destroyed");
+      await ready;
+      await bridge.endpoint.request(METHOD_SELECTION_SET, { enabled });
+    },
+    onSelectionChanged(listener: (element: ElementDescriptor) => void): () => void {
+      selectionListeners.add(listener);
+      return () => selectionListeners.delete(listener);
+    },
+    async createEditContext(selectedIds: string[]): Promise<EditContext> {
+      if (destroyed) throw new Error("sandbox is destroyed");
+      await ready;
+      const [descriptors, allIds] = await Promise.all([
+        bridge.endpoint.request(METHOD_INSPECT_DESCRIBE, { ids: selectedIds }) as Promise<ElementDescriptor[]>,
+        bridge.endpoint.request(METHOD_INSPECT_IDS) as Promise<ElementIdEntry[]>,
+      ]);
+      return buildEditContext({
+        profile: options.profile?.name ?? null,
+        selection: descriptors,
+        screenElementIds: allIds.map((entry) => entry.id),
+        source: lastSource,
+      });
     },
     destroy(): void {
       if (destroyed) return;

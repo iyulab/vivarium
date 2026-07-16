@@ -138,6 +138,10 @@ handlers.set("vivarium/render", async (params) => {
   unmountProvider = null;
   if (identityMaintainer) identityMaintainer.disconnect();
   root.replaceChildren();
+  // Identity maintenance starts BEFORE mount runs, so elements are
+  // addressable as soon as they appear — including interactions that
+  // happen while mount is still in flight.
+  identityMaintainer = installStableIdentity(root);
   const api = {
     context: initResult.context,
     capabilities: initResult.capabilities,
@@ -145,7 +149,7 @@ handlers.set("vivarium/render", async (params) => {
     onUnmount: (provider) => { unmountProvider = provider; },
   };
   await module.default(root, api);
-  identityMaintainer = installStableIdentity(root);
+  identityMaintainer.refresh();
   return { ok: true };
 });
 
@@ -157,6 +161,57 @@ handlers.set("vivarium/inspect.ids", () => {
     out.push({ id: el.getAttribute("data-viv-id"), tag: el.tagName.toLowerCase() });
   }
   return out;
+});
+
+function describeElement(el) {
+  const attributes = {};
+  for (const attr of el.attributes) {
+    if (attr.name === "data-viv-id") continue;
+    attributes[attr.name] = attr.value.length > 200 ? attr.value.slice(0, 200) + "…" : attr.value;
+  }
+  const raw = el.textContent;
+  const text = raw && raw.trim().length > 0
+    ? (raw.length > 500 ? raw.slice(0, 500) + "…" : raw)
+    : null;
+  return { id: el.getAttribute("data-viv-id"), tag: el.tagName.toLowerCase(), text, attributes };
+}
+
+handlers.set("vivarium/inspect.describe", (params) => {
+  if (!params || !Array.isArray(params.ids)) throw new Error("describe requires { ids: string[] }");
+  const root = document.getElementById("__ROOT_ID__");
+  if (identityMaintainer) identityMaintainer.refresh();
+  const out = [];
+  for (const id of params.ids) {
+    for (const el of root.querySelectorAll("[data-viv-id]")) {
+      if (el.getAttribute("data-viv-id") === id) {
+        out.push(describeElement(el));
+        break;
+      }
+    }
+  }
+  return out;
+});
+
+let selectionListener = null;
+
+handlers.set("vivarium/selection.set", (params) => {
+  const enabled = !!(params && params.enabled);
+  if (enabled && !selectionListener) {
+    selectionListener = (event) => {
+      let el = event.target;
+      while (el && el !== document.body && !(el.getAttribute && el.getAttribute("data-viv-id"))) {
+        el = el.parentElement;
+      }
+      if (el && el.getAttribute && el.getAttribute("data-viv-id")) {
+        post({ jsonrpc: "2.0", method: "vivarium/selection.changed", params: describeElement(el) });
+      }
+    };
+    document.addEventListener("click", selectionListener, true);
+  } else if (!enabled && selectionListener) {
+    document.removeEventListener("click", selectionListener, true);
+    selectionListener = null;
+  }
+  return { enabled };
 });
 
 initResult = await request("vivarium/initialize", { protocolVersion: "__PROTOCOL_VERSION__" });

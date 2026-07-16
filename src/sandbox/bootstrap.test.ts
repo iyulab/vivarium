@@ -35,6 +35,9 @@ test("guest runtime speaks the lifecycle methods and only trusts the parent", ()
   assert.ok(html.includes("vivarium/render"));
   assert.ok(html.includes("vivarium/unmount"));
   assert.ok(html.includes("vivarium/inspect.ids"));
+  assert.ok(html.includes("vivarium/inspect.describe"));
+  assert.ok(html.includes("vivarium/selection.set"));
+  assert.ok(html.includes("vivarium/selection.changed"));
   assert.ok(html.includes("event.source !== window.parent"), "must filter message sources");
 });
 

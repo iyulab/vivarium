@@ -36,6 +36,7 @@ export async function loadReactTsxProfile(assetBase = "./assets/") {
   });
   return {
     name: "react-tsx@0",
+    language: "tsx",
     modules: {
       "@vivarium/react-runtime": runtimeSource,
       "react": REACT_WRAPPER,

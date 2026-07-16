@@ -62,7 +62,15 @@ export {
   SANDBOX_CSP_WITH_MODULES,
 } from "./sandbox/bootstrap.ts";
 export type { BootstrapOptions } from "./sandbox/bootstrap.ts";
-export { mountSandbox, METHOD_RENDER, METHOD_INSPECT_IDS, SANDBOX_ATTRIBUTE } from "./sandbox/host.ts";
+export {
+  mountSandbox,
+  METHOD_RENDER,
+  METHOD_INSPECT_IDS,
+  METHOD_INSPECT_DESCRIBE,
+  METHOD_SELECTION_SET,
+  NOTIFICATION_SELECTION_CHANGED,
+  SANDBOX_ATTRIBUTE,
+} from "./sandbox/host.ts";
 export type {
   SandboxOptions,
   SandboxProfile,
@@ -71,6 +79,16 @@ export type {
   SandboxContainerElement,
   ElementIdEntry,
 } from "./sandbox/host.ts";
+
+export { EDIT_CONTEXT_VERSION, buildEditContext } from "./inspect/edit-context.ts";
+export type {
+  EditContext,
+  EditContextSource,
+  ElementSelection,
+  ElementDescriptor,
+  UntrustedElementData,
+  BuildEditContextInput,
+} from "./inspect/edit-context.ts";
 
 export {
   STABLE_ID_ATTRIBUTE,
