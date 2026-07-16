@@ -55,13 +55,23 @@ export {
 } from "./bridge/lifecycle.ts";
 
 export { createBootstrapHtml, SANDBOX_ROOT_ID } from "./sandbox/bootstrap.ts";
-export { mountSandbox, METHOD_RENDER, SANDBOX_ATTRIBUTE } from "./sandbox/host.ts";
+export { mountSandbox, METHOD_RENDER, METHOD_INSPECT_IDS, SANDBOX_ATTRIBUTE } from "./sandbox/host.ts";
 export type {
   SandboxOptions,
   SandboxHandle,
   SandboxIframeElement,
   SandboxContainerElement,
+  ElementIdEntry,
 } from "./sandbox/host.ts";
+
+export {
+  STABLE_ID_ATTRIBUTE,
+  SYNTHESIZED_ID_PREFIX,
+  createIdentityRuntime,
+  assignStableIds,
+  installStableIdentity,
+} from "./identity/stable-id.ts";
+export type { IdentifiableElement, IdentityMaintainer, IdentityRuntime } from "./identity/stable-id.ts";
 export type {
   InitializeParams,
   InitializeResult,

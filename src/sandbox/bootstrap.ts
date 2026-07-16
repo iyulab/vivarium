@@ -14,6 +14,7 @@
  */
 
 import { BRIDGE_PROTOCOL_VERSION } from "../bridge/protocol.ts";
+import { createIdentityRuntime } from "../identity/stable-id.ts";
 
 /** Root element id inside the sandbox document where generated UI mounts. */
 export const SANDBOX_ROOT_ID = "vivarium-root";
@@ -77,6 +78,9 @@ handlers.set("vivarium/unmount", async () => {
   return state === undefined ? {} : { state };
 });
 
+const { installStableIdentity } = (__IDENTITY_RUNTIME_FACTORY__)();
+let identityMaintainer = null;
+
 handlers.set("vivarium/render", async (params) => {
   if (!initResult) throw new Error("render before initialize completed");
   if (!params || typeof params.code !== "string") throw new Error("render requires { code: string }");
@@ -92,6 +96,7 @@ handlers.set("vivarium/render", async (params) => {
     throw new Error("generated module must default-export mount(root, api)");
   }
   unmountProvider = null;
+  if (identityMaintainer) identityMaintainer.disconnect();
   root.replaceChildren();
   const api = {
     context: initResult.context,
@@ -100,7 +105,18 @@ handlers.set("vivarium/render", async (params) => {
     onUnmount: (provider) => { unmountProvider = provider; },
   };
   await module.default(root, api);
+  identityMaintainer = installStableIdentity(root);
   return { ok: true };
+});
+
+handlers.set("vivarium/inspect.ids", () => {
+  const root = document.getElementById("__ROOT_ID__");
+  if (identityMaintainer) identityMaintainer.refresh();
+  const out = [];
+  for (const el of root.querySelectorAll("[data-viv-id]")) {
+    out.push({ id: el.getAttribute("data-viv-id"), tag: el.tagName.toLowerCase() });
+  }
+  return out;
 });
 
 initResult = await request("vivarium/initialize", { protocolVersion: "__PROTOCOL_VERSION__" });
@@ -113,7 +129,10 @@ initResult = await request("vivarium/initialize", { protocolVersion: "__PROTOCOL
 export function createBootstrapHtml(): string {
   const runtime = GUEST_RUNTIME
     .replaceAll("__ROOT_ID__", SANDBOX_ROOT_ID)
-    .replaceAll("__PROTOCOL_VERSION__", BRIDGE_PROTOCOL_VERSION);
+    .replaceAll("__PROTOCOL_VERSION__", BRIDGE_PROTOCOL_VERSION)
+    // Identity layer is injected from its real module (see the INJECTION
+    // CONTRACT note in identity/stable-id.ts) instead of being duplicated.
+    .replace("__IDENTITY_RUNTIME_FACTORY__", createIdentityRuntime.toString());
   return [
     "<!doctype html>",
     '<html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%}</style></head>',

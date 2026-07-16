@@ -18,6 +18,12 @@ import type { CapabilityRegistry } from "../bridge/capabilities.ts";
 import { createBootstrapHtml } from "./bootstrap.ts";
 
 export const METHOD_RENDER = "vivarium/render";
+export const METHOD_INSPECT_IDS = "vivarium/inspect.ids";
+
+export interface ElementIdEntry {
+  id: string;
+  tag: string;
+}
 
 export const SANDBOX_ATTRIBUTE = "allow-scripts";
 
@@ -56,6 +62,8 @@ export interface SandboxHandle {
   render(code: string): Promise<void>;
   /** Ask the guest to unmount, collecting any state it wants persisted. */
   requestUnmount(): Promise<UnmountResult>;
+  /** Enumerate the stable ids of every element currently rendered. */
+  listIds(): Promise<ElementIdEntry[]>;
   /** Tear down bridge and iframe. The handle is unusable afterwards. */
   destroy(): void;
 }
@@ -114,6 +122,11 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
       if (destroyed) throw new Error("sandbox is destroyed");
       await ready;
       return bridge.requestUnmount();
+    },
+    async listIds(): Promise<ElementIdEntry[]> {
+      if (destroyed) throw new Error("sandbox is destroyed");
+      await ready;
+      return (await bridge.endpoint.request(METHOD_INSPECT_IDS)) as ElementIdEntry[];
     },
     destroy(): void {
       if (destroyed) return;

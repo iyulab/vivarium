@@ -24,5 +24,13 @@ test("guest runtime speaks the lifecycle methods and only trusts the parent", ()
   assert.ok(html.includes("vivarium/initialize"));
   assert.ok(html.includes("vivarium/render"));
   assert.ok(html.includes("vivarium/unmount"));
+  assert.ok(html.includes("vivarium/inspect.ids"));
   assert.ok(html.includes("event.source !== window.parent"), "must filter message sources");
+});
+
+test("identity runtime is injected as one self-contained factory", () => {
+  const html = createBootstrapHtml();
+  assert.ok(!html.includes("__IDENTITY_RUNTIME_FACTORY__"), "factory placeholder must be substituted");
+  assert.ok(html.includes("const { installStableIdentity } = (function"), "injected factory is invoked");
+  assert.ok(html.includes("installStableIdentity"), "runtime installs identity maintenance");
 });

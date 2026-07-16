@@ -98,6 +98,44 @@ async function main() {
   // 6. host page saw no writes from generated code
   record("host DOM untouched by generated code", document.getElementById("generated") === null);
 
+  // 6.5 stable identity: synthesis, re-render stability, authored anchoring,
+  //     dynamic-insert maintenance — enumerated through vivarium/inspect.ids
+  const identityCode = `
+    export default function mount(root) {
+      root.innerHTML = '<section data-viv-id="sidebar"><button>a</button></section>'
+        + '<main><button>b</button><button>c</button></main>';
+      setTimeout(() => {
+        const span = document.createElement("span");
+        span.textContent = "late";
+        root.querySelector("main").append(span);
+      }, 30);
+    }
+  `;
+  await handle.render(identityCode);
+  const firstIds = await handle.listIds();
+  record(
+    "synthesized ids are structural; authored id preserved and anchoring",
+    JSON.stringify(firstIds.map((e) => e.id)) ===
+      JSON.stringify(["sidebar", "viv:@sidebar/button[0]", "viv:main[0]", "viv:main[0]/button[0]", "viv:main[0]/button[1]"]),
+    JSON.stringify(firstIds),
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const afterInsert = await handle.listIds();
+  record(
+    "dynamically inserted element receives an id via the maintainer",
+    afterInsert.some((e) => e.id === "viv:main[0]/span[0]"),
+    JSON.stringify(afterInsert.map((e) => e.id)),
+  );
+
+  await handle.render(identityCode);
+  const secondIds = await handle.listIds();
+  record(
+    "re-render of the same code reproduces identical ids",
+    JSON.stringify(secondIds.map((e) => e.id)) === JSON.stringify(firstIds.map((e) => e.id)),
+    JSON.stringify(secondIds.map((e) => e.id)),
+  );
+
   // 7. unmount hands back guest state
   await handle.render(`
     export default function mount(root, api) {
