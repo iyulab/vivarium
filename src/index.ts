@@ -49,15 +49,23 @@ export type { CapabilityDescriptor, CapabilityGrant } from "./bridge/capabilitie
 
 export {
   METHOD_INITIALIZE,
+  METHOD_INITIALIZED,
   METHOD_UNMOUNT,
   createHostBridge,
   createGuestBridge,
 } from "./bridge/lifecycle.ts";
 
-export { createBootstrapHtml, SANDBOX_ROOT_ID, SANDBOX_CSP } from "./sandbox/bootstrap.ts";
+export {
+  createBootstrapHtml,
+  SANDBOX_ROOT_ID,
+  SANDBOX_CSP,
+  SANDBOX_CSP_WITH_MODULES,
+} from "./sandbox/bootstrap.ts";
+export type { BootstrapOptions } from "./sandbox/bootstrap.ts";
 export { mountSandbox, METHOD_RENDER, METHOD_INSPECT_IDS, SANDBOX_ATTRIBUTE } from "./sandbox/host.ts";
 export type {
   SandboxOptions,
+  SandboxProfile,
   SandboxHandle,
   SandboxIframeElement,
   SandboxContainerElement,

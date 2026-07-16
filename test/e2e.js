@@ -166,6 +166,38 @@ async function main() {
 
   handle.destroy();
   record("destroy removes the iframe", stage.querySelector("iframe") === null);
+
+  // 9. execution profile (ADR-0004): embedded modules resolve bare
+  //    specifiers inside the closed sandbox; transform runs host-side
+  const profiled = mountSandbox(stage, {
+    registry,
+    context: {},
+    profile: {
+      name: "demo-profile@0",
+      modules: {
+        "demo-lib": 'export const greet = (name) => "안녕, " + name;',
+      },
+      transform: (code) => code.replaceAll("__NAME__", '"vivarium"'),
+    },
+  });
+  await profiled.render(`
+    import { greet } from "demo-lib";
+    export default function mount(root) {
+      const div = document.createElement("div");
+      div.textContent = greet(__NAME__);
+      root.append(div);
+    }
+  `);
+  const profiledIds = await profiled.listIds();
+  record("profile module import + host-side transform render", profiledIds.length === 1, JSON.stringify(profiledIds));
+
+  const unknownImport = await expectReject(
+    profiled.render('import { nope } from "not-embedded"; export default () => {};'),
+    /not-embedded|resolve|specifier/i,
+  );
+  record("non-embedded specifier fails closed", unknownImport.rejected, unknownImport.message);
+
+  profiled.destroy();
 }
 
 main()

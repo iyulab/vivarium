@@ -45,10 +45,26 @@ export interface SandboxContainerElement {
   appendChild(node: unknown): void;
 }
 
+/**
+ * Execution profile (ADR-0004): what "the generated code's world" contains.
+ * The runtime core stays profile-neutral; a profile is plain data — module
+ * sources embedded into the sandbox and a host-side source transform.
+ */
+export interface SandboxProfile {
+  /** Profile identifier, e.g. "react-tsx@0". Surfaced for audit/debugging. */
+  name: string;
+  /** Bare specifier → ES module source, resolved inside the sandbox via an embedded import map. */
+  modules?: Record<string, string>;
+  /** Host-side source-to-source transform applied before render (e.g. TSX → JS). */
+  transform?(code: string): string;
+}
+
 export interface SandboxOptions {
   registry: CapabilityRegistry;
   /** Opaque host context handed to the generated UI at initialize. */
   context?: unknown;
+  /** Execution profile for generated code. Omitted: plain-JS modules only. */
+  profile?: SandboxProfile;
   /** Timeout for host→guest requests (render, unmount). Default 10s. */
   requestTimeoutMs?: number;
 }
@@ -80,7 +96,7 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
   const iframe = doc.createElement("iframe") as SandboxIframeElement;
   // Fail-closed: allow-scripts only. Everything else stays denied.
   iframe.setAttribute("sandbox", SANDBOX_ATTRIBUTE);
-  iframe.setAttribute("srcdoc", createBootstrapHtml());
+  iframe.setAttribute("srcdoc", createBootstrapHtml({ modules: options.profile?.modules }));
   container.appendChild(iframe);
 
   const transport = createPostMessageTransport(
@@ -115,8 +131,12 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
     whenReady: () => ready,
     async render(code: string): Promise<void> {
       if (destroyed) throw new Error("sandbox is destroyed");
+      const transform = options.profile?.transform;
+      // Transform host-side and before awaiting readiness, so profile
+      // source errors surface immediately (ADR-0004).
+      const finalCode = transform ? transform(code) : code;
       await ready;
-      await bridge.endpoint.request(METHOD_RENDER, { code });
+      await bridge.endpoint.request(METHOD_RENDER, { code: finalCode });
     },
     async requestUnmount(): Promise<UnmountResult> {
       if (destroyed) throw new Error("sandbox is destroyed");

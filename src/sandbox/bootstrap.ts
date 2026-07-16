@@ -24,9 +24,40 @@ export const SANDBOX_ROOT_ID = "vivarium-root";
  * (connect/img/font/media/frame all collapse to none); scripts are limited
  * to the inline bootstrap and blob:-imported generated modules; inline
  * styles are allowed because generated UI legitimately styles itself.
+ * `data:` is added to script-src only when a profile embeds modules
+ * (ADR-0004 — fail-closed: no allowance before there is a need).
  */
 export const SANDBOX_CSP =
   "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'";
+
+export const SANDBOX_CSP_WITH_MODULES =
+  "default-src 'none'; script-src 'unsafe-inline' blob: data:; style-src 'unsafe-inline'";
+
+/** UTF-8 safe base64 (Node Buffer or browser TextEncoder+btoa). */
+function toBase64(source: string): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(source, "utf8").toString("base64");
+  }
+  const bytes = new TextEncoder().encode(source);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Build the import map that resolves bare specifiers inside the sandbox to
+ * embedded data: modules. JSON is defused against `</script>` breakout.
+ */
+function buildImportMap(modules: Record<string, string>): string {
+  const imports: Record<string, string> = {};
+  for (const [specifier, source] of Object.entries(modules)) {
+    imports[specifier] = "data:text/javascript;base64," + toBase64(source);
+  }
+  return JSON.stringify({ imports }).replaceAll("<", "\\u003c");
+}
 
 const GUEST_RUNTIME = `
 const pending = new Map();
@@ -129,29 +160,41 @@ handlers.set("vivarium/inspect.ids", () => {
 });
 
 initResult = await request("vivarium/initialize", { protocolVersion: "__PROTOCOL_VERSION__" });
+post({ jsonrpc: "2.0", method: "vivarium/initialized" });
 `;
+
+export interface BootstrapOptions {
+  /** Profile modules to embed: bare specifier → ES module source (ADR-0004). */
+  modules?: Record<string, string>;
+}
 
 /**
  * Build the srcdoc HTML for the sandbox iframe. Self-contained: inline
- * module script only, no external references.
+ * scripts and embedded data: modules only, no external references.
  */
-export function createBootstrapHtml(): string {
+export function createBootstrapHtml(options: BootstrapOptions = {}): string {
   const runtime = GUEST_RUNTIME
     .replaceAll("__ROOT_ID__", SANDBOX_ROOT_ID)
     .replaceAll("__PROTOCOL_VERSION__", BRIDGE_PROTOCOL_VERSION)
     // Identity layer is injected from its real module (see the INJECTION
     // CONTRACT note in identity/stable-id.ts) instead of being duplicated.
     .replace("__IDENTITY_RUNTIME_FACTORY__", createIdentityRuntime.toString());
+  const modules = options.modules ?? {};
+  const hasModules = Object.keys(modules).length > 0;
+  const csp = hasModules ? SANDBOX_CSP_WITH_MODULES : SANDBOX_CSP;
   return [
     "<!doctype html>",
     "<html><head>",
     '<meta charset="utf-8">',
     // The iframe sandbox attribute isolates the origin but does NOT block
     // network egress; this document CSP does (README: the bridge is the only
-    // channel). Fail-closed: only the inline bootstrap and blob-imported
-    // generated modules may run; no fetch/XHR, no external resources.
-    `<meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}">`,
+    // channel). Fail-closed: only the inline bootstrap, blob-imported
+    // generated modules, and embedded profile modules may run; no fetch/XHR,
+    // no external resources.
+    `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
     "<style>html,body{margin:0;height:100%}</style>",
+    // The import map must precede the first module script to take effect.
+    ...(hasModules ? ['<script type="importmap">' + buildImportMap(modules) + "</script>"] : []),
     "</head>",
     `<body><div id="${SANDBOX_ROOT_ID}"></div>`,
     '<script type="module">' + runtime + "</script>",

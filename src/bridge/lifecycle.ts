@@ -16,6 +16,7 @@ import type { CapabilityDescriptor } from "./capabilities.ts";
 import { BRIDGE_PROTOCOL_VERSION, RpcError, INVALID_PARAMS } from "./protocol.ts";
 
 export const METHOD_INITIALIZE = "vivarium/initialize";
+export const METHOD_INITIALIZED = "vivarium/initialized";
 export const METHOD_UNMOUNT = "vivarium/unmount";
 
 export interface InitializeParams {
@@ -56,20 +57,30 @@ export interface HostBridge {
 export function createHostBridge(transport: Transport, options: HostBridgeOptions): HostBridge {
   const endpoint = new RpcEndpoint(transport, options);
   let initialized = false;
+  let handshake: InitializeParams | null = null;
 
   endpoint.expose(METHOD_INITIALIZE, (params) => {
     const shaped = params as Partial<InitializeParams> | undefined;
     if (typeof shaped?.protocolVersion !== "string") {
       throw new RpcError(INVALID_PARAMS, "initialize requires { protocolVersion: string }");
     }
-    initialized = true;
-    options.onInitialized?.({ protocolVersion: shaped.protocolVersion });
+    handshake = { protocolVersion: shaped.protocolVersion };
     const result: InitializeResult = {
       protocolVersion: BRIDGE_PROTOCOL_VERSION,
       context: options.context ?? null,
       capabilities: options.registry.list(),
     };
     return result;
+  });
+
+  // The handshake completes only when the guest confirms it received the
+  // initialize result (MCP shape). Marking readiness at the request instead
+  // would let the host race a render request ahead of its own initialize
+  // response.
+  endpoint.expose(METHOD_INITIALIZED, () => {
+    if (!handshake) throw new RpcError(INVALID_PARAMS, "initialized before initialize");
+    initialized = true;
+    options.onInitialized?.(handshake);
   });
 
   bindCapabilities(endpoint, options.registry);
@@ -113,7 +124,9 @@ export function createGuestBridge(transport: Transport, options: GuestBridgeOpti
     endpoint,
     async initialize(): Promise<InitializeResult> {
       const params: InitializeParams = { protocolVersion: BRIDGE_PROTOCOL_VERSION };
-      return (await endpoint.request(METHOD_INITIALIZE, params)) as InitializeResult;
+      const result = (await endpoint.request(METHOD_INITIALIZE, params)) as InitializeResult;
+      endpoint.notify(METHOD_INITIALIZED);
+      return result;
     },
     invoke(capability: string, params?: unknown): Promise<unknown> {
       return endpoint.request(CAPABILITY_METHOD_PREFIX + capability, params);

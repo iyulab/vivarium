@@ -80,13 +80,64 @@ test("messages from foreign sources are ignored; guest initialize resolves readi
   assert.equal(ready, false);
   assert.equal(dom.sent.length, 0, "foreign traffic must produce no replies");
 
-  // The genuine guest handshake succeeds.
+  // The genuine guest handshake succeeds (request + confirmation notification).
   dom.emit({ jsonrpc: "2.0", id: 1, method: "vivarium/initialize", params: { protocolVersion: "0.1" } });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(ready, false, "ready only after the guest confirms receipt");
+  dom.emit({ jsonrpc: "2.0", method: "vivarium/initialized" });
   await new Promise((resolve) => setTimeout(resolve, 5));
   assert.equal(ready, true);
   const reply = dom.sent[0] as { result: { context: unknown } };
   assert.deepEqual(reply.result.context, { greeting: "hi" });
 
+  handle.destroy();
+});
+
+test("profile transform runs host-side before the render request is sent", async () => {
+  const dom = makeFakeDom();
+  const handle = mountSandbox(dom.container, {
+    registry: new CapabilityRegistry(),
+    profile: {
+      name: "test-profile",
+      transform: (code) => code.replace("__PLACEHOLDER__", "transformed"),
+    },
+  });
+
+  dom.emit({ jsonrpc: "2.0", id: 1, method: "vivarium/initialize", params: { protocolVersion: "0.1" } });
+  dom.emit({ jsonrpc: "2.0", method: "vivarium/initialized" });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  const renderDone = handle.render("export default () => '__PLACEHOLDER__'");
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const renderRequest = dom.sent.find(
+    (m) => (m as { method?: string }).method === "vivarium/render",
+  ) as { id: number; params: { code: string } };
+  assert.ok(renderRequest, "render request must be sent");
+  assert.ok(renderRequest.params.code.includes("transformed"));
+  assert.ok(!renderRequest.params.code.includes("__PLACEHOLDER__"));
+
+  dom.emit({ jsonrpc: "2.0", id: renderRequest.id, result: { ok: true } });
+  await renderDone;
+  handle.destroy();
+});
+
+test("a throwing profile transform rejects render without sending anything", async () => {
+  const dom = makeFakeDom();
+  const handle = mountSandbox(dom.container, {
+    registry: new CapabilityRegistry(),
+    profile: {
+      name: "test-profile",
+      transform: () => {
+        throw new Error("syntax error in generated TSX");
+      },
+    },
+  });
+  dom.emit({ jsonrpc: "2.0", id: 1, method: "vivarium/initialize", params: { protocolVersion: "0.1" } });
+  dom.emit({ jsonrpc: "2.0", method: "vivarium/initialized" });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const sentBefore = dom.sent.length;
+  await assert.rejects(handle.render("bad"), /syntax error in generated TSX/);
+  assert.equal(dom.sent.length, sentBefore, "no render request may leave the host");
   handle.destroy();
 });
 
