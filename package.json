@@ -1,0 +1,13 @@
+{
+  "name": "@vivarium/runtime",
+  "version": "0.0.1",
+  "description": "Sandboxed runtime for AI-generated UI — capability bridge, stable element identity, and inspection. Browser-side member of the Vivarium family.",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "engines": { "node": ">=23.6" },
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "node --test \"src/**/*.test.ts\""
+  }
+}
