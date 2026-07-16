@@ -53,6 +53,15 @@ export {
   createHostBridge,
   createGuestBridge,
 } from "./bridge/lifecycle.ts";
+
+export { createBootstrapHtml, SANDBOX_ROOT_ID } from "./sandbox/bootstrap.ts";
+export { mountSandbox, METHOD_RENDER, SANDBOX_ATTRIBUTE } from "./sandbox/host.ts";
+export type {
+  SandboxOptions,
+  SandboxHandle,
+  SandboxIframeElement,
+  SandboxContainerElement,
+} from "./sandbox/host.ts";
 export type {
   InitializeParams,
   InitializeResult,
