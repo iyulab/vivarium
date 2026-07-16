@@ -1,0 +1,19 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+      # Unit tests only — the real-browser e2e harnesses (test/e2e*.html)
+      # need a served browser session and stay a local/dev concern for now.
+      - run: npm test
