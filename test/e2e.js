@@ -98,6 +98,18 @@ async function main() {
   // 6. host page saw no writes from generated code
   record("host DOM untouched by generated code", document.getElementById("generated") === null);
 
+  // 5.5 network egress is closed by the sandbox document CSP
+  const exfil = await expectReject(
+    handle.render(`
+      export default async function mount() {
+        const response = await fetch(location.ancestorOrigins ? "http://localhost:8787/package.json" : "/package.json");
+        return response.status;
+      }
+    `),
+    /fetch|CSP|Content Security Policy|violates/i,
+  );
+  record("network fetch from generated code is blocked (CSP)", exfil.rejected && exfil.matched, exfil.message);
+
   // 6.5 stable identity: synthesis, re-render stability, authored anchoring,
   //     dynamic-insert maintenance — enumerated through vivarium/inspect.ids
   const identityCode = `

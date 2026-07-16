@@ -19,6 +19,15 @@ import { createIdentityRuntime } from "../identity/stable-id.ts";
 /** Root element id inside the sandbox document where generated UI mounts. */
 export const SANDBOX_ROOT_ID = "vivarium-root";
 
+/**
+ * Sandbox document CSP. `default-src 'none'` closes every network path
+ * (connect/img/font/media/frame all collapse to none); scripts are limited
+ * to the inline bootstrap and blob:-imported generated modules; inline
+ * styles are allowed because generated UI legitimately styles itself.
+ */
+export const SANDBOX_CSP =
+  "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'";
+
 const GUEST_RUNTIME = `
 const pending = new Map();
 const handlers = new Map();
@@ -135,7 +144,15 @@ export function createBootstrapHtml(): string {
     .replace("__IDENTITY_RUNTIME_FACTORY__", createIdentityRuntime.toString());
   return [
     "<!doctype html>",
-    '<html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%}</style></head>',
+    "<html><head>",
+    '<meta charset="utf-8">',
+    // The iframe sandbox attribute isolates the origin but does NOT block
+    // network egress; this document CSP does (README: the bridge is the only
+    // channel). Fail-closed: only the inline bootstrap and blob-imported
+    // generated modules may run; no fetch/XHR, no external resources.
+    `<meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}">`,
+    "<style>html,body{margin:0;height:100%}</style>",
+    "</head>",
     `<body><div id="${SANDBOX_ROOT_ID}"></div>`,
     '<script type="module">' + runtime + "</script>",
     "</body></html>",
