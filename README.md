@@ -54,7 +54,7 @@ Left to implementation, benchmarks, and ADRs — not fixed here:
 
 ## Relationship to the Vivarium family
 
-Vivarium is the family's namesake and its only browser-side member. It depends on **nothing** except, where changesets are exchanged, the [`vivarium-changeset`](../vivarium-changeset) contract. It is consumed by hosts directly, and its edit context is the input format of [`vivarium-agent`](../vivarium-agent).
+Vivarium is the family's namesake and its only browser-side member. It depends on **nothing** except, where changesets are exchanged, the [`vivarium-changeset`](https://github.com/iyulab/vivarium-changeset) contract. It is consumed by hosts directly, and its edit context is the input format of [`vivarium-agent`](https://github.com/iyulab/vivarium-agent).
 
 Standalone use is a first-class scenario: *"embed safely-sandboxed, AI-generated UI in an existing product"* requires this repo and nothing else.
 
