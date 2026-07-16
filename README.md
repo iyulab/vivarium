@@ -56,6 +56,13 @@ These are the anchors. An implementation that violates one of these is not Vivar
   `data-viv-id` preserved with descendants anchored under it.
 - Edit context: versioned public contract — see [docs/edit-context.md](docs/edit-context.md).
 
+### Host integration note
+
+Keep the sandbox container inside the viewport. Chromium throttles
+`requestAnimationFrame` in offscreen iframes, so an artifact whose `mount`
+awaits an animation frame will hang (and the render request will time out)
+if the host page lets the sandbox scroll out of view.
+
 ## Deliberately undecided
 
 - Whether and how third-party component whitelisting works
