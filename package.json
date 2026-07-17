@@ -1,5 +1,5 @@
 {
-  "name": "@vivarium/runtime",
+  "name": "@vivariumjs/runtime",
   "version": "0.0.1",
   "description": "Sandboxed runtime for AI-generated UI — capability bridge, stable element identity, and inspection. Browser-side member of the Vivarium family.",
   "type": "module",

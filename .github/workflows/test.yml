@@ -28,9 +28,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - name: Fresh consumer installs and imports @vivarium/runtime
+      - name: Fresh consumer installs and imports @vivariumjs/runtime
         run: |
           mkdir "$RUNNER_TEMP/consumer" && cd "$RUNNER_TEMP/consumer"
           echo '{"name":"consumer","private":true,"type":"module"}' > package.json
           npm install --no-audit --no-fund "$GITHUB_WORKSPACE"
-          node -e "import('@vivarium/runtime').then((m) => { const n = Object.keys(m).length; if (!n) throw new Error('empty surface'); console.log('imported', n, 'exports'); }).catch((e) => { console.error(e); process.exit(1); })"
+          node -e "import('@vivariumjs/runtime').then((m) => { const n = Object.keys(m).length; if (!n) throw new Error('empty surface'); console.log('imported', n, 'exports'); }).catch((e) => { console.error(e); process.exit(1); })"
