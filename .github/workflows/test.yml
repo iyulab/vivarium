@@ -37,3 +37,7 @@ jobs:
           echo '{"name":"consumer","private":true,"type":"module"}' > package.json
           npm install --no-audit --no-fund "$GITHUB_WORKSPACE"
           node -e "import('@vivariumjs/runtime').then((m) => { const n = Object.keys(m).length; if (!n) throw new Error('empty surface'); console.log('imported', n, 'exports'); }).catch((e) => { console.error(e); process.exit(1); })"
+      # Docs-example verification (Phase 5.c): the getting-started fences are
+      # extracted and type-checked against the packed tarball, as a consumer.
+      - name: Getting-started examples compile as a fresh npm consumer
+        run: node tools/verify-docs-examples.ts
