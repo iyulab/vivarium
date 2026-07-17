@@ -28,6 +28,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      # Exports point at dist/ — build it first (folder installs don't run prepack).
+      - run: npm ci
+      - run: npm run build
       - name: Fresh consumer installs and imports @vivariumjs/runtime
         run: |
           mkdir "$RUNNER_TEMP/consumer" && cd "$RUNNER_TEMP/consumer"

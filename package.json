@@ -4,20 +4,41 @@
   "description": "Sandboxed runtime for AI-generated UI — capability bridge, stable element identity, and inspection. Browser-side member of the Vivarium family.",
   "type": "module",
   "license": "MIT",
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iyulab/vivarium.git"
+  },
+  "homepage": "https://github.com/iyulab/vivarium#readme",
+  "bugs": "https://github.com/iyulab/vivarium/issues",
+  "keywords": [
+    "vivarium",
+    "sandbox",
+    "iframe",
+    "capability-bridge",
+    "ai-generated-ui"
+  ],
   "engines": {
-    "node": ">=23.6"
+    "node": ">=20"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "test": "node --test \"src/**/*.test.ts\""
   },
   "devDependencies": {
     "esbuild": "^0.28.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "sucrase": "^3.35.1"
+    "sucrase": "^3.35.1",
+    "typescript": "^7.0.2"
   }
 }

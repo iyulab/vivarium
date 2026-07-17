@@ -33,6 +33,11 @@ export const SANDBOX_CSP =
 export const SANDBOX_CSP_WITH_MODULES =
   "default-src 'none'; script-src 'unsafe-inline' blob: data:; style-src 'unsafe-inline'";
 
+/** Node's Buffer, when present — this package compiles against DOM types only. */
+declare const Buffer:
+  | { from(input: string, encoding: string): { toString(encoding: string): string } }
+  | undefined;
+
 /** UTF-8 safe base64 (Node Buffer or browser TextEncoder+btoa). */
 function toBase64(source: string): string {
   if (typeof Buffer !== "undefined") {
