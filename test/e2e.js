@@ -37,6 +37,11 @@ async function main() {
     invoked.push(params);
     return [{ id: 1, title: "hello from host" }];
   });
+  const uiEvents = [];
+  registry.grant({ name: "ui.event", description: "interaction telemetry (e2e)" }, (params) => {
+    uiEvents.push(params);
+    return null;
+  });
 
   const handle = mountSandbox(stage, {
     registry,
@@ -146,6 +151,46 @@ async function main() {
     "re-render of the same code reproduces identical ids",
     JSON.stringify(secondIds.map((e) => e.id)) === JSON.stringify(firstIds.map((e) => e.id)),
     JSON.stringify(secondIds.map((e) => e.id)),
+  );
+
+  // 6.8 interactive generated UI: listeners registered by generated code
+  //     receive events (the bootstrap's capture-phase selection listener must
+  //     not swallow them), may mutate the DOM after mount, and may invoke
+  //     capabilities from handlers — the bridge stays live post-mount.
+  //     (Surface first exercised by a consumer in samples/dashboard-builder
+  //     M6 — hover crosshair/tooltip charts; sealed here deterministically.)
+  await handle.render(`
+    export default function mount(root, api) {
+      const btn = document.createElement("button");
+      btn.textContent = "hover me";
+      const label = document.createElement("output");
+      label.textContent = "idle";
+      btn.addEventListener("pointermove", (ev) => {
+        label.textContent = "hovered@" + Math.round(ev.clientX);
+        void api.invoke("ui.event", { type: "pointermove", x: Math.round(ev.clientX) });
+      });
+      root.append(btn, label);
+      // Same-document synthetic event: proves listener registration, event
+      // propagation, and handler execution inside the closed sandbox. (Real
+      // trusted input cannot be synthesized from the host page across the
+      // opaque origin; input delivery itself is browser behavior.)
+      setTimeout(() => {
+        btn.dispatchEvent(new PointerEvent("pointermove", { clientX: 77, bubbles: true }));
+      }, 20);
+    }
+  `);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const outputId = (await handle.listIds()).map((e) => e.id).find((id) => id.includes("output"));
+  const outputDesc = outputId ? await handle.describeElements([outputId]) : [];
+  record(
+    "interaction: generated listener ran and mutated the DOM after mount",
+    outputDesc.length === 1 && outputDesc[0].text === "hovered@77",
+    JSON.stringify(outputDesc.map((d) => d.text)),
+  );
+  record(
+    "interaction: capability invoked from an event handler (bridge live post-mount)",
+    uiEvents.length === 1 && uiEvents[0].type === "pointermove" && uiEvents[0].x === 77,
+    JSON.stringify(uiEvents),
   );
 
   // 7. unmount hands back guest state
