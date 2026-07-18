@@ -158,6 +158,20 @@ Sucrase on the host side) lives in this repository — see
 is assembled from npm-installed sources. Profiles are versioned data the
 host supplies; the runtime core stays profile-neutral.
 
+## Public surface and `/internal`
+
+The package root exports exactly the consumer contract this guide uses —
+`mountSandbox`, `CapabilityRegistry`, `EDIT_CONTEXT_VERSION`, and the types
+reachable from their signatures. That is the surface this package promises
+compatibility for.
+
+Protocol plumbing (JSON-RPC message shapes, transports, `RpcEndpoint`,
+lifecycle bridges, bootstrap HTML, the stable-identity runtime) is
+available from `@vivariumjs/runtime/internal` for advanced integrations,
+with **no stability promise** — those symbols may change in any 0.x
+release. If you find yourself depending on one, please open an issue so it
+can be promoted to the root entry deliberately.
+
 ## Host integration notes
 
 - **Keep the container inside the viewport.** Chromium throttles

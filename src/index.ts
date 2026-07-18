@@ -1,76 +1,19 @@
-export {
-  JSONRPC_VERSION,
-  BRIDGE_PROTOCOL_VERSION,
-  PARSE_ERROR,
-  INVALID_REQUEST,
-  METHOD_NOT_FOUND,
-  INVALID_PARAMS,
-  INTERNAL_ERROR,
-  CAPABILITY_DENIED,
-  ENDPOINT_CLOSED,
-  RpcError,
-  classifyMessage,
-  makeRequest,
-  makeNotification,
-  makeSuccess,
-  makeError,
-} from "./bridge/protocol.ts";
-export type {
-  RpcId,
-  RpcRequest,
-  RpcNotification,
-  RpcErrorShape,
-  RpcSuccessResponse,
-  RpcErrorResponse,
-  RpcResponse,
-  RpcMessage,
-  MessageKind,
-} from "./bridge/protocol.ts";
+/**
+ * @vivariumjs/runtime — public consumer surface.
+ *
+ * This entry is the documented consumer contract (docs/getting-started.md,
+ * docs/edit-context.md): mount a sandbox, grant capabilities, receive edit
+ * contexts. Values here are the API this package promises compatibility for;
+ * the exported types are the closure reachable from those values' signatures.
+ *
+ * Protocol plumbing (JSON-RPC message shapes, transports, endpoints,
+ * lifecycle bridges, bootstrap HTML, stable-identity runtime) lives behind
+ * "@vivariumjs/runtime/internal" — see src/internal.ts. It carries no
+ * stability promise; symbols are promoted here only on demonstrated
+ * consumer demand (demand-driven growth).
+ */
 
-export { createTransportPair, createPostMessageTransport } from "./bridge/transport.ts";
-export type {
-  Transport,
-  PostMessageTarget,
-  PostMessageSource,
-  MessageEventLike,
-  PostMessageTransportOptions,
-} from "./bridge/transport.ts";
-
-export { RpcEndpoint } from "./bridge/endpoint.ts";
-export type { MethodHandler, RpcEndpointOptions } from "./bridge/endpoint.ts";
-
-export {
-  CAPABILITY_METHOD_PREFIX,
-  CapabilityRegistry,
-  bindCapabilities,
-  isValidCapabilityName,
-} from "./bridge/capabilities.ts";
-export type { CapabilityDescriptor, CapabilityGrant } from "./bridge/capabilities.ts";
-
-export {
-  METHOD_INITIALIZE,
-  METHOD_INITIALIZED,
-  METHOD_UNMOUNT,
-  createHostBridge,
-  createGuestBridge,
-} from "./bridge/lifecycle.ts";
-
-export {
-  createBootstrapHtml,
-  SANDBOX_ROOT_ID,
-  SANDBOX_CSP,
-  SANDBOX_CSP_WITH_MODULES,
-} from "./sandbox/bootstrap.ts";
-export type { BootstrapOptions } from "./sandbox/bootstrap.ts";
-export {
-  mountSandbox,
-  METHOD_RENDER,
-  METHOD_INSPECT_IDS,
-  METHOD_INSPECT_DESCRIBE,
-  METHOD_SELECTION_SET,
-  NOTIFICATION_SELECTION_CHANGED,
-  SANDBOX_ATTRIBUTE,
-} from "./sandbox/host.ts";
+export { mountSandbox } from "./sandbox/host.ts";
 export type {
   SandboxOptions,
   SandboxProfile,
@@ -80,30 +23,18 @@ export type {
   ElementIdEntry,
 } from "./sandbox/host.ts";
 
-export { EDIT_CONTEXT_VERSION, buildEditContext } from "./inspect/edit-context.ts";
+export { CapabilityRegistry } from "./bridge/capabilities.ts";
+export type { CapabilityDescriptor, CapabilityGrant } from "./bridge/capabilities.ts";
+
+export { EDIT_CONTEXT_VERSION } from "./inspect/edit-context.ts";
 export type {
   EditContext,
   EditContextSource,
   ElementSelection,
   ElementDescriptor,
   UntrustedElementData,
-  BuildEditContextInput,
 } from "./inspect/edit-context.ts";
 
-export {
-  STABLE_ID_ATTRIBUTE,
-  SYNTHESIZED_ID_PREFIX,
-  createIdentityRuntime,
-  assignStableIds,
-  installStableIdentity,
-} from "./identity/stable-id.ts";
-export type { IdentifiableElement, IdentityMaintainer, IdentityRuntime } from "./identity/stable-id.ts";
-export type {
-  InitializeParams,
-  InitializeResult,
-  UnmountResult,
-  HostBridge,
-  HostBridgeOptions,
-  GuestBridge,
-  GuestBridgeOptions,
-} from "./bridge/lifecycle.ts";
+// Types reachable from SandboxHandle / SandboxContainerElement signatures.
+export type { HostBridge, UnmountResult } from "./bridge/lifecycle.ts";
+export type { MessageEventLike } from "./bridge/transport.ts";
