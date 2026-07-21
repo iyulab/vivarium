@@ -2,7 +2,7 @@
 
 > Sandboxed runtime for AI-generated UI — render generated code safely, with stable element identity and inspection built in.
 
-**Status: core implemented (pre-0.1).** This document is the project's anchor: it fixes purpose, scope, and the small set of principles that implementation must honor. The sandbox core, capability bridge, stable identity layer, execution profiles, and the [edit context contract](docs/edit-context.md) are implemented and covered by unit + real-browser e2e tests.
+**Status: published on npm — [`@vivariumjs/runtime`](https://www.npmjs.com/package/@vivariumjs/runtime), 0.x** (pre-1.0: minor versions may change the surface — see the [changelog](CHANGELOG.md)). This document is the project's anchor: it fixes purpose, scope, and the small set of principles that implementation must honor. The sandbox core, capability bridge, stable identity layer, execution profiles, and the [edit context contract](docs/edit-context.md) are implemented and covered by unit + real-browser e2e tests.
 
 **To embed it in your app, start with the [getting-started guide](docs/getting-started.md)** (`npm install @vivariumjs/runtime`).
 
