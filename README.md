@@ -72,6 +72,13 @@ if the host page lets the sandbox scroll out of view.
 
 ## Relationship to the Vivarium family
 
+A running instance of the family — propose, preview, approve, apply, roll back — is
+browsable as a gallery of archived runs: [vivarium-gallery](https://github.com/iyulab/vivarium-gallery)
+([live](https://iyulab.github.io/vivarium-gallery/)). Each exhibit keeps the final artifacts, the
+turn ledger and the rollback record of an actual run, so the claims above can be checked
+rather than taken on faith.
+
+
 Vivarium is the family's namesake and its only browser-side member. It depends on **nothing** except, where changesets are exchanged, the [`vivarium-changeset`](https://github.com/iyulab/vivarium-changeset) contract. It is consumed by hosts directly, and its edit context is the input format of [`vivarium-agent`](https://github.com/iyulab/vivarium-agent).
 
 Standalone use is a first-class scenario: *"embed safely-sandboxed, AI-generated UI in an existing product"* requires this repo and nothing else.
