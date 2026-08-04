@@ -221,6 +221,25 @@ can be promoted to the root entry deliberately.
   schema is — wire your backend into capability handlers and keep the
   sandbox ignorant of everything else.
 
+## Running the checks yourself
+
+`npm test` runs the unit suite under plain Node. The behaviour that only a
+real browser can show — the sandboxed iframe's opaque origin, the document
+CSP closing the network, identity maintenance across live re-renders, and the
+error codes a rejection carries back across the bridge — lives in harnesses
+you serve and open:
+
+```
+node tools/dev-server.ts 8787          # strips types so the browser can import src/*.ts
+# then open http://localhost:8787/test/e2e.html          (sandbox core)
+#      and  http://localhost:8787/test/e2e-react.html    (react-tsx profile)
+```
+
+Each page reports pass/fail per assertion and leaves the same results on
+`window.__E2E__` for a driver to read, so the harnesses can be run by hand or
+from an automation script. They are not part of CI, which is why the pages
+report rather than exit — a green CI run is not a claim that these passed.
+
 ## Where to go next
 
 - [Edit context contract](edit-context.md) — the versioned shape your
