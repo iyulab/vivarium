@@ -13,7 +13,7 @@
  * import; this is a documented integration requirement, not a sandbox leak.
  */
 
-import { BRIDGE_PROTOCOL_VERSION } from "../bridge/protocol.ts";
+import { BRIDGE_PROTOCOL_VERSION, INVALID_PARAMS, INTERNAL_ERROR } from "../bridge/protocol.ts";
 import { createIdentityRuntime } from "../identity/stable-id.ts";
 
 /** Root element id inside the sandbox document where generated UI mounts. */
@@ -71,6 +71,34 @@ let nextId = 1;
 let initResult = null;
 let unmountProvider = null;
 
+/**
+ * A failure the guest classified itself. Mirrors the host endpoint's rule
+ * (bridge/endpoint.ts): a classified failure travels with its own code,
+ * everything else is the runtime's own fault and stays INTERNAL_ERROR.
+ *
+ * The rule keys on the class, not on a "code" property, and that is the
+ * point: DOM exceptions carry an unrelated legacy numeric "code", and a
+ * peer error that bubbles through a handler is the peer's verdict on some
+ * other request, not this guest's verdict on this one. Neither may be
+ * mistaken for a classification made here.
+ */
+class RpcFailure extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "RpcFailure";
+    this.code = code;
+  }
+}
+
+function invalidParams(message) {
+  return new RpcFailure(__INVALID_PARAMS__, message);
+}
+
+function toErrorShape(err) {
+  if (err instanceof RpcFailure) return { code: err.code, message: err.message };
+  return { code: __INTERNAL_ERROR__, message: String((err && err.message) || err) };
+}
+
 function post(message) {
   window.parent.postMessage(message, "*");
 }
@@ -101,7 +129,7 @@ window.addEventListener("message", (event) => {
         .then(() => handler(msg.params))
         .then(
           (result) => post({ jsonrpc: "2.0", id: msg.id, result: result === undefined ? null : result }),
-          (err) => post({ jsonrpc: "2.0", id: msg.id, error: { code: -32603, message: String((err && err.message) || err) } }),
+          (err) => post({ jsonrpc: "2.0", id: msg.id, error: toErrorShape(err) }),
         );
     } else if (handler) {
       Promise.resolve().then(() => handler(msg.params)).catch(() => {});
@@ -127,8 +155,8 @@ const { installStableIdentity } = (__IDENTITY_RUNTIME_FACTORY__)();
 let identityMaintainer = null;
 
 handlers.set("vivarium/render", async (params) => {
-  if (!initResult) throw new Error("render before initialize completed");
-  if (!params || typeof params.code !== "string") throw new Error("render requires { code: string }");
+  if (!initResult) throw invalidParams("render before initialize completed");
+  if (!params || typeof params.code !== "string") throw invalidParams("render requires { code: string }");
   const root = document.getElementById("__ROOT_ID__");
   const url = URL.createObjectURL(new Blob([params.code], { type: "text/javascript" }));
   let module;
@@ -138,7 +166,7 @@ handlers.set("vivarium/render", async (params) => {
     URL.revokeObjectURL(url);
   }
   if (typeof module.default !== "function") {
-    throw new Error("generated module must default-export mount(root, api)");
+    throw invalidParams("generated module must default-export mount(root, api)");
   }
   unmountProvider = null;
   if (identityMaintainer) identityMaintainer.disconnect();
@@ -182,7 +210,7 @@ function describeElement(el) {
 }
 
 handlers.set("vivarium/inspect.describe", (params) => {
-  if (!params || !Array.isArray(params.ids)) throw new Error("describe requires { ids: string[] }");
+  if (!params || !Array.isArray(params.ids)) throw invalidParams("describe requires { ids: string[] }");
   const root = document.getElementById("__ROOT_ID__");
   if (identityMaintainer) identityMaintainer.refresh();
   const out = [];
@@ -236,6 +264,10 @@ export function createBootstrapHtml(options: BootstrapOptions = {}): string {
   const runtime = GUEST_RUNTIME
     .replaceAll("__ROOT_ID__", SANDBOX_ROOT_ID)
     .replaceAll("__PROTOCOL_VERSION__", BRIDGE_PROTOCOL_VERSION)
+    // Error codes come from the protocol module rather than being written
+    // into the template, so the two ends of the bridge cannot drift apart.
+    .replaceAll("__INVALID_PARAMS__", String(INVALID_PARAMS))
+    .replaceAll("__INTERNAL_ERROR__", String(INTERNAL_ERROR))
     // Identity layer is injected from its real module (see the INJECTION
     // CONTRACT note in identity/stable-id.ts) instead of being duplicated.
     .replace("__IDENTITY_RUNTIME_FACTORY__", createIdentityRuntime.toString());

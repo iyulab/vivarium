@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createBootstrapHtml, SANDBOX_ROOT_ID, SANDBOX_CSP, SANDBOX_CSP_WITH_MODULES } from "./bootstrap.ts";
-import { BRIDGE_PROTOCOL_VERSION } from "../bridge/protocol.ts";
+import { BRIDGE_PROTOCOL_VERSION, INVALID_PARAMS, INTERNAL_ERROR } from "../bridge/protocol.ts";
 
 test("bootstrap html is self-contained (no external references)", () => {
   const html = createBootstrapHtml();
@@ -39,6 +39,59 @@ test("guest runtime speaks the lifecycle methods and only trusts the parent", ()
   assert.ok(html.includes("vivarium/selection.set"));
   assert.ok(html.includes("vivarium/selection.changed"));
   assert.ok(html.includes("event.source !== window.parent"), "must filter message sources");
+});
+
+test("guest error codes are taken from the protocol module, not written into the template", () => {
+  const html = createBootstrapHtml();
+
+  assert.ok(!html.includes("__INVALID_PARAMS__"), "placeholders must be substituted");
+  assert.ok(!html.includes("__INTERNAL_ERROR__"), "placeholders must be substituted");
+  assert.ok(
+    html.includes(`new RpcFailure(${INVALID_PARAMS}, message)`),
+    "classified guest failures carry the protocol module's INVALID_PARAMS",
+  );
+  assert.ok(
+    html.includes(`return { code: ${INTERNAL_ERROR}, message:`),
+    "unclassified guest failures fall back to the protocol module's INTERNAL_ERROR",
+  );
+});
+
+test("guest replies classify by failure type, never by a code the failure happens to carry", () => {
+  const html = createBootstrapHtml();
+
+  // The reply path must not decide the code itself — that is how every
+  // handler failure came to be reported as INTERNAL_ERROR.
+  assert.ok(
+    html.includes("error: toErrorShape(err)"),
+    "the reply path delegates classification",
+  );
+  assert.ok(
+    !/error: \{ code: -\d+, message: String\(/.test(html),
+    "no reply may hard-code the code of an arbitrary failure",
+  );
+  // Keying on a `code` property would admit foreign failures: DOM
+  // exceptions carry an unrelated legacy numeric `code`.
+  assert.ok(
+    html.includes("if (err instanceof RpcFailure)"),
+    "classification keys on the guest's own failure type",
+  );
+});
+
+test("every guest parameter check reports a caller error, not a runtime error", () => {
+  const html = createBootstrapHtml();
+
+  // The guest validates its parameters in four places; each one is a
+  // verdict about the caller's input, and reporting any of them as an
+  // internal error tells the caller to go looking in the wrong place.
+  for (const guard of [
+    "render before initialize completed",
+    "render requires { code: string }",
+    "generated module must default-export mount(root, api)",
+    "describe requires { ids: string[] }",
+  ]) {
+    assert.ok(html.includes(`invalidParams("${guard}")`), `"${guard}" must be a caller error`);
+  }
+  assert.ok(!/throw new Error\(/.test(html), "no guest failure is left unclassified by omission");
 });
 
 test("profile modules embed as a data: import map ahead of the runtime, widening CSP only then", () => {

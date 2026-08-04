@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mountSandbox, SANDBOX_ATTRIBUTE } from "./host.ts";
 import type { SandboxContainerElement, SandboxIframeElement } from "./host.ts";
 import { CapabilityRegistry } from "../bridge/capabilities.ts";
+import { RpcError, ENDPOINT_CLOSED } from "../bridge/protocol.ts";
 import type { MessageEventLike } from "../bridge/transport.ts";
 
 /**
@@ -150,4 +151,31 @@ test("destroy closes the bridge, removes the iframe, and detaches listeners", as
   assert.equal(dom.listenerCount(), 0);
   await assert.rejects(handle.render("export default () => {}"), /destroyed/);
   await assert.rejects(handle.requestUnmount(), /destroyed/);
+});
+
+test("every entry point on a destroyed handle reports the closed channel", async () => {
+  const dom = makeFakeDom();
+  const handle = mountSandbox(dom.container, { registry: new CapabilityRegistry() });
+  handle.destroy();
+
+  // The whole surface, not the two that happened to be tested: a caller
+  // racing teardown may be in any of these calls, and a code that appears
+  // on some of them is one the caller still cannot rely on.
+  const calls: [string, () => Promise<unknown>][] = [
+    ["render", () => handle.render("export default () => {}")],
+    ["requestUnmount", () => handle.requestUnmount()],
+    ["listIds", () => handle.listIds()],
+    ["describeElements", () => handle.describeElements(["x"])],
+    ["setSelectionMode", () => handle.setSelectionMode(true)],
+    ["createEditContext", () => handle.createEditContext([])],
+  ];
+
+  for (const [name, call] of calls) {
+    await assert.rejects(
+      call(),
+      (err: unknown) =>
+        err instanceof RpcError && err.code === ENDPOINT_CLOSED && /destroyed/.test(err.message),
+      `${name}() must reject with ENDPOINT_CLOSED`,
+    );
+  }
 });

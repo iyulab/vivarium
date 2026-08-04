@@ -10,6 +10,7 @@
  * unit tests; real-browser behavior is covered by the e2e harness.
  */
 
+import { RpcError, ENDPOINT_CLOSED } from "../bridge/protocol.ts";
 import { createPostMessageTransport } from "../bridge/transport.ts";
 import type { MessageEventLike } from "../bridge/transport.ts";
 import { createHostBridge } from "../bridge/lifecycle.ts";
@@ -76,6 +77,13 @@ export interface SandboxOptions {
   requestTimeoutMs?: number;
 }
 
+/**
+ * A live sandbox. Every operation below needs the bridge, so once the handle
+ * is destroyed they all reject the same way — an `RpcError` carrying
+ * `ENDPOINT_CLOSED`, the code the endpoint itself reports once closed. One
+ * condition, one code: a caller racing teardown branches once, and never has
+ * to read the message to find out what happened.
+ */
 export interface SandboxHandle {
   iframe: SandboxIframeElement;
   bridge: HostBridge;
@@ -155,7 +163,7 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
     bridge,
     whenReady: () => ready,
     async render(code: string): Promise<void> {
-      if (destroyed) throw new Error("sandbox is destroyed");
+      if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");
       const transform = options.profile?.transform;
       // Transform host-side and before awaiting readiness, so profile
       // source errors surface immediately (ADR-0004).
@@ -167,22 +175,22 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
       lastSource = { language: options.profile?.language ?? "js", code };
     },
     async requestUnmount(): Promise<UnmountResult> {
-      if (destroyed) throw new Error("sandbox is destroyed");
+      if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");
       await ready;
       return bridge.requestUnmount();
     },
     async listIds(): Promise<ElementIdEntry[]> {
-      if (destroyed) throw new Error("sandbox is destroyed");
+      if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");
       await ready;
       return (await bridge.endpoint.request(METHOD_INSPECT_IDS)) as ElementIdEntry[];
     },
     async describeElements(ids: string[]): Promise<ElementDescriptor[]> {
-      if (destroyed) throw new Error("sandbox is destroyed");
+      if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");
       await ready;
       return (await bridge.endpoint.request(METHOD_INSPECT_DESCRIBE, { ids })) as ElementDescriptor[];
     },
     async setSelectionMode(enabled: boolean): Promise<void> {
-      if (destroyed) throw new Error("sandbox is destroyed");
+      if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");
       await ready;
       await bridge.endpoint.request(METHOD_SELECTION_SET, { enabled });
     },
@@ -191,7 +199,7 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
       return () => selectionListeners.delete(listener);
     },
     async createEditContext(selectedIds: string[]): Promise<EditContext> {
-      if (destroyed) throw new Error("sandbox is destroyed");
+      if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");
       await ready;
       const [descriptors, allIds] = await Promise.all([
         bridge.endpoint.request(METHOD_INSPECT_DESCRIBE, { ids: selectedIds }) as Promise<ElementDescriptor[]>,

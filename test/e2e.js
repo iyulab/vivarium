@@ -209,8 +209,86 @@ async function main() {
   );
   record("malformed generated code rejects", malformed.rejected, malformed.message);
 
+  // 8.5 a caller error crossing the bridge is reported as a caller error.
+  //     The guest validates its parameters; if those rejections arrive as
+  //     INTERNAL_ERROR the caller cannot tell "my input" from "the runtime".
+  const badRenderParams = await expectReject(
+    handle.bridge.endpoint.request("vivarium/render", {}),
+    /./,
+  );
+  record(
+    "missing render params report INVALID_PARAMS",
+    badRenderParams.code === -32602,
+    `code=${badRenderParams.code} ${badRenderParams.message}`,
+  );
+
+  const badDescribeParams = await expectReject(
+    handle.bridge.endpoint.request("vivarium/inspect.describe", { ids: "not-an-array" }),
+    /./,
+  );
+  record(
+    "missing describe params report INVALID_PARAMS",
+    badDescribeParams.code === -32602,
+    `code=${badDescribeParams.code} ${badDescribeParams.message}`,
+  );
+
+  const noDefaultExport = await expectReject(
+    handle.render("export const notDefault = 1;"),
+    /./,
+  );
+  record(
+    "generated module without a default export reports INVALID_PARAMS",
+    noDefaultExport.code === -32602,
+    `code=${noDefaultExport.code} ${noDefaultExport.message}`,
+  );
+
+  // 8.55 a DOM exception carries a legacy numeric `code` of its own (this
+  //      one is 5). It must not be mistaken for a JSON-RPC classification.
+  await handle.render(`
+    export default function mount() { document.createElement(""); }
+  `).then(
+    () => record("a DOM exception's own code never reaches the wire", false, "did not reject"),
+    (err) => record(
+      "a DOM exception's own code never reaches the wire",
+      err.code === -32603,
+      `code=${err.code} ${err.message}`,
+    ),
+  );
+
+  // 8.6 a failure the guest did not classify stays INTERNAL_ERROR — the
+  //     default must survive, or the distinction 8.5 restores is worthless.
+  await handle.render(`
+    export default function mount() { throw new Error("mount exploded"); }
+  `).then(
+    () => record("unclassified guest failure stays INTERNAL_ERROR", false, "did not reject"),
+    (err) => record(
+      "unclassified guest failure stays INTERNAL_ERROR",
+      err.code === -32603,
+      `code=${err.code} ${err.message}`,
+    ),
+  );
+
   handle.destroy();
   record("destroy removes the iframe", stage.querySelector("iframe") === null);
+
+  // 8.7 every entry point on a destroyed handle reports the same closed
+  //     channel, so one branch covers the whole surface.
+  const afterDestroy = [
+    ["render", () => handle.render("export default () => {}")],
+    ["requestUnmount", () => handle.requestUnmount()],
+    ["listIds", () => handle.listIds()],
+    ["describeElements", () => handle.describeElements(["x"])],
+    ["setSelectionMode", () => handle.setSelectionMode(true)],
+    ["createEditContext", () => handle.createEditContext([])],
+  ];
+  for (const [name, call] of afterDestroy) {
+    const rejected = await expectReject(call(), /destroyed/);
+    record(
+      `${name}() on a destroyed handle reports ENDPOINT_CLOSED`,
+      rejected.rejected && rejected.matched && rejected.code === -32001,
+      `code=${rejected.code} ${rejected.message}`,
+    );
+  }
 
   // 9. execution profile (ADR-0004): embedded modules resolve bare
   //    specifiers inside the closed sandbox; transform runs host-side

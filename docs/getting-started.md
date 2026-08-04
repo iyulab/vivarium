@@ -132,6 +132,41 @@ unsubscribe();
 sandbox.destroy(); // removes the iframe; the handle is unusable afterwards
 ```
 
+## 5. Reading a failure
+
+Rejections from the bridge carry a JSON-RPC `code`, so a host can tell what
+happened without matching on the message text:
+
+```ts
+async function renderAndReport(code: string): Promise<string> {
+  try {
+    await sandbox.render(code);
+    return "rendered";
+  } catch (err) {
+    switch ((err as { code?: number }).code) {
+      case -32602: // invalid params — the request was rejected as given
+        return "the generated code was rejected; regenerate it";
+      case -32001: // endpoint closed — this sandbox is gone
+        return "the sandbox was torn down; mount a new one";
+      default: // internal error — the runtime or the generated code failed
+        return `render failed: ${String(err)}`;
+    }
+  }
+}
+```
+
+| Code | Meaning | Who can act |
+| --- | --- | --- |
+| `-32601` | The method does not exist — e.g. invoking a capability that was never granted | Host: grant it, or stop calling it |
+| `-32602` | The request was rejected as given — malformed params, or generated code that is not a module default-exporting `mount(root, api)` | Caller: send something else |
+| `-32001` | The handle was destroyed, or its endpoint closed | Caller: mount a new sandbox |
+| `-32603` | Everything else — the runtime, or the generated code failing while it runs | Report it; the message is the detail |
+
+The distinction that matters is `-32602` against `-32603`: the first says the
+call was wrong, the second says it was not. Named constants for these codes
+live behind `@vivariumjs/runtime/internal`, which carries no stability
+promise — reading the numeric `code` off the rejection needs no import.
+
 ## Execution profiles (TSX and friends)
 
 By default the sandbox runs plain-JS ES modules, like the example above.
