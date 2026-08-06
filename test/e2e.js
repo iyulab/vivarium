@@ -232,13 +232,27 @@ async function main() {
     `code=${badDescribeParams.code} ${badDescribeParams.message}`,
   );
 
+  // 8.52 the supplied code is a third party to the request. When it will
+  //      not load, exports the wrong thing, or throws on the way up, the
+  //      request was well formed and the runtime is fine — saying either
+  //      "your params were bad" or "we broke" sends the caller elsewhere.
+  const failsToLoad = await expectReject(
+    handle.render("this is still not javascript {{{"),
+    /./,
+  );
+  record(
+    "generated code that will not load is the code's fault",
+    failsToLoad.code === -32002,
+    `code=${failsToLoad.code} ${failsToLoad.message}`,
+  );
+
   const noDefaultExport = await expectReject(
     handle.render("export const notDefault = 1;"),
     /./,
   );
   record(
-    "generated module without a default export reports INVALID_PARAMS",
-    noDefaultExport.code === -32602,
+    "generated module without a default export is the code's fault",
+    noDefaultExport.code === -32002,
     `code=${noDefaultExport.code} ${noDefaultExport.message}`,
   );
 
@@ -250,22 +264,42 @@ async function main() {
     () => record("a DOM exception's own code never reaches the wire", false, "did not reject"),
     (err) => record(
       "a DOM exception's own code never reaches the wire",
-      err.code === -32603,
+      err.code === -32002,
       `code=${err.code} ${err.message}`,
     ),
   );
 
-  // 8.6 a failure the guest did not classify stays INTERNAL_ERROR — the
-  //     default must survive, or the distinction 8.5 restores is worthless.
+  // 8.6 a throw out of mount() is the supplied code failing, not the
+  //     runtime — and the message carries the original text, since the
+  //     classification replaces the code, never the detail.
   await handle.render(`
     export default function mount() { throw new Error("mount exploded"); }
   `).then(
-    () => record("unclassified guest failure stays INTERNAL_ERROR", false, "did not reject"),
+    () => record("a mount throw is the generated code's fault", false, "did not reject"),
     (err) => record(
-      "unclassified guest failure stays INTERNAL_ERROR",
-      err.code === -32603,
+      "a mount throw is the generated code's fault",
+      err.code === -32002 && /mount exploded/.test(String(err.message)),
       `code=${err.code} ${err.message}`,
     ),
+  );
+
+  // 8.65 CONTROL — the classification is scoped to the render path, so
+  //      INTERNAL_ERROR must still be reachable. A code that meant
+  //      "anything the guest runs" would be the old catch-all wearing a
+  //      better name, and nothing here would prove otherwise. This also
+  //      records the edge the scope leaves open: an unmount provider is
+  //      generated code too, and it still reports as the runtime's fault.
+  await handle.render(`
+    export default function mount(root, api) {
+      root.textContent = "ok";
+      api.onUnmount(() => { throw new Error("teardown exploded"); });
+    }
+  `);
+  const teardown = await expectReject(handle.requestUnmount(), /./);
+  record(
+    "a guest failure outside the render path stays INTERNAL_ERROR",
+    teardown.code === -32603,
+    `code=${teardown.code} ${teardown.message}`,
   );
 
   handle.destroy();

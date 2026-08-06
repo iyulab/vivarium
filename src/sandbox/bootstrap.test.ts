@@ -80,17 +80,30 @@ test("guest replies classify by failure type, never by a code the failure happen
 test("every guest parameter check reports a caller error, not a runtime error", () => {
   const html = createBootstrapHtml();
 
-  // The guest validates its parameters in four places; each one is a
+  // The guest validates its parameters in three places; each one is a
   // verdict about the caller's input, and reporting any of them as an
   // internal error tells the caller to go looking in the wrong place.
   for (const guard of [
     "render before initialize completed",
     "render requires { code: string }",
-    "generated module must default-export mount(root, api)",
     "describe requires { ids: string[] }",
   ]) {
     assert.ok(html.includes(`invalidParams("${guard}")`), `"${guard}" must be a caller error`);
   }
+
+  // A fourth class sits between the two: the request was well formed and
+  // the runtime is fine, but the supplied code would not load, exports the
+  // wrong thing, or threw on the way up. Calling these caller errors claims
+  // the values handed over were malformed; calling them internal errors
+  // claims the runtime broke. Both send the caller to the wrong place.
+  for (const fault of [
+    "generated module failed to load",
+    "generated module must default-export mount(root, api)",
+    "generated module threw while mounting",
+  ]) {
+    assert.ok(html.includes(`generatedCodeFault("${fault}"`), `"${fault}" must be a generated-code fault`);
+  }
+
   assert.ok(!/throw new Error\(/.test(html), "no guest failure is left unclassified by omission");
 });
 

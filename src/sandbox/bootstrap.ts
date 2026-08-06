@@ -13,7 +13,12 @@
  * import; this is a documented integration requirement, not a sandbox leak.
  */
 
-import { BRIDGE_PROTOCOL_VERSION, INVALID_PARAMS, INTERNAL_ERROR } from "../bridge/protocol.ts";
+import {
+  BRIDGE_PROTOCOL_VERSION,
+  INVALID_PARAMS,
+  INTERNAL_ERROR,
+  GENERATED_CODE_FAULT,
+} from "../bridge/protocol.ts";
 import { createIdentityRuntime } from "../identity/stable-id.ts";
 
 /** Root element id inside the sandbox document where generated UI mounts. */
@@ -94,6 +99,19 @@ function invalidParams(message) {
   return new RpcFailure(__INVALID_PARAMS__, message);
 }
 
+/**
+ * The generated code failed on its own terms — it would not load, does not
+ * export what the contract requires, or threw while mounting. Scoped to the
+ * render path deliberately: a code that means "everything the guest runs"
+ * would be the same catch-all __INTERNAL_ERROR__ already is, under a nicer
+ * name. The original failure travels in the message; the guest does not
+ * forward a foreign error code, for the reason RpcFailure documents above.
+ */
+function generatedCodeFault(what, err) {
+  const detail = err === undefined ? "" : ": " + String((err && err.message) || err);
+  return new RpcFailure(__GENERATED_CODE_FAULT__, what + detail);
+}
+
 function toErrorShape(err) {
   if (err instanceof RpcFailure) return { code: err.code, message: err.message };
   return { code: __INTERNAL_ERROR__, message: String((err && err.message) || err) };
@@ -162,11 +180,13 @@ handlers.set("vivarium/render", async (params) => {
   let module;
   try {
     module = await import(url);
+  } catch (err) {
+    throw generatedCodeFault("generated module failed to load", err);
   } finally {
     URL.revokeObjectURL(url);
   }
   if (typeof module.default !== "function") {
-    throw invalidParams("generated module must default-export mount(root, api)");
+    throw generatedCodeFault("generated module must default-export mount(root, api)");
   }
   unmountProvider = null;
   if (identityMaintainer) identityMaintainer.disconnect();
@@ -181,7 +201,11 @@ handlers.set("vivarium/render", async (params) => {
     invoke: (name, invokeParams) => request("cap:" + name, invokeParams),
     onUnmount: (provider) => { unmountProvider = provider; },
   };
-  await module.default(root, api);
+  try {
+    await module.default(root, api);
+  } catch (err) {
+    throw generatedCodeFault("generated module threw while mounting", err);
+  }
   identityMaintainer.refresh();
   return { ok: true };
 });
@@ -268,6 +292,7 @@ export function createBootstrapHtml(options: BootstrapOptions = {}): string {
     // into the template, so the two ends of the bridge cannot drift apart.
     .replaceAll("__INVALID_PARAMS__", String(INVALID_PARAMS))
     .replaceAll("__INTERNAL_ERROR__", String(INTERNAL_ERROR))
+    .replaceAll("__GENERATED_CODE_FAULT__", String(GENERATED_CODE_FAULT))
     // Identity layer is injected from its real module (see the INJECTION
     // CONTRACT note in identity/stable-id.ts) instead of being duplicated.
     .replace("__IDENTITY_RUNTIME_FACTORY__", createIdentityRuntime.toString());

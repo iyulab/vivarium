@@ -138,34 +138,50 @@ Rejections from the bridge carry a JSON-RPC `code`, so a host can tell what
 happened without matching on the message text:
 
 ```ts
+import {
+  RpcError,
+  ENDPOINT_CLOSED,
+  GENERATED_CODE_FAULT,
+  INVALID_PARAMS,
+} from "@vivariumjs/runtime";
+
 async function renderAndReport(code: string): Promise<string> {
   try {
     await sandbox.render(code);
     return "rendered";
   } catch (err) {
-    switch ((err as { code?: number }).code) {
-      case -32602: // invalid params — the request was rejected as given
-        return "the generated code was rejected; regenerate it";
-      case -32001: // endpoint closed — this sandbox is gone
+    if (!(err instanceof RpcError)) throw err;
+    switch (err.code) {
+      case INVALID_PARAMS:
+        return "the call itself was malformed; fix the request";
+      case GENERATED_CODE_FAULT:
+        return "the generated code failed; regenerate it";
+      case ENDPOINT_CLOSED:
         return "the sandbox was torn down; mount a new one";
-      default: // internal error — the runtime or the generated code failed
-        return `render failed: ${String(err)}`;
+      default:
+        return `render failed: ${err.message}`;
     }
   }
 }
 ```
 
-| Code | Meaning | Who can act |
-| --- | --- | --- |
-| `-32601` | The method does not exist — e.g. invoking a capability that was never granted | Host: grant it, or stop calling it |
-| `-32602` | The request was rejected as given — malformed params, or generated code that is not a module default-exporting `mount(root, api)` | Caller: send something else |
-| `-32001` | The handle was destroyed, or its endpoint closed | Caller: mount a new sandbox |
-| `-32603` | Everything else — the runtime, or the generated code failing while it runs | Report it; the message is the detail |
+| Code | Constant | Meaning | Who can act |
+| --- | --- | --- | --- |
+| `-32601` | `METHOD_NOT_FOUND` | The method does not exist — e.g. invoking a capability that was never granted | Host: grant it, or stop calling it |
+| `-32602` | `INVALID_PARAMS` | The request was rejected as given — malformed params | Caller: send something else |
+| `-32002` | `GENERATED_CODE_FAULT` | The request was fine and the runtime is fine; the supplied code would not load, does not default-export `mount(root, api)`, or threw while mounting | Whoever produced the code: regenerate it |
+| `-32001` | `ENDPOINT_CLOSED` | The handle was destroyed, or its endpoint closed | Caller: mount a new sandbox |
+| `-32000` | `CAPABILITY_DENIED` | A capability invocation was refused | Host: grant it, or stop calling it |
+| `-32603` | `INTERNAL_ERROR` | Everything else — the runtime's own failure | Report it; the message is the detail |
 
-The distinction that matters is `-32602` against `-32603`: the first says the
-call was wrong, the second says it was not. Named constants for these codes
-live behind `@vivariumjs/runtime/internal`, which carries no stability
-promise — reading the numeric `code` off the rejection needs no import.
+The distinction that matters is three-way, not two. `-32602` says the call was
+wrong. `-32002` says the call was right and the code you supplied was not —
+which is a different party, and usually a different fix. `-32603` says neither,
+and is the only one a caller can do nothing about.
+
+`GENERATED_CODE_FAULT` covers the render path. A failure elsewhere in generated
+code — an `api.onUnmount` provider that throws, say — is still reported as
+`-32603`.
 
 ## Execution profiles (TSX and friends)
 

@@ -57,6 +57,19 @@ export const INTERNAL_ERROR = -32603;
 /** Vivarium bridge error codes (implementation-defined range -32000..-32099). */
 export const CAPABILITY_DENIED = -32000;
 export const ENDPOINT_CLOSED = -32001;
+/**
+ * The generated code itself failed: it did not load as a module, does not
+ * default-export `mount(root, api)`, or threw while mounting.
+ *
+ * This is neither INVALID_PARAMS nor INTERNAL_ERROR, and calling it either
+ * one loses the distinction a caller acts on. INVALID_PARAMS would claim the
+ * values handed over were malformed, which is false — the code arrived as the
+ * string it had to be, and only executing it revealed the fault. INTERNAL_ERROR
+ * would claim the runtime broke, which is also false, and it is the report a
+ * caller can do nothing with. The honest answer is a third one: the request
+ * was well formed and the runtime is fine; the code you supplied is not.
+ */
+export const GENERATED_CODE_FAULT = -32002;
 
 export class RpcError extends Error {
   code: number;
