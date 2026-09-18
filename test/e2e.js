@@ -193,6 +193,63 @@ async function main() {
     JSON.stringify(uiEvents),
   );
 
+  // 6.9 faults after mount reach the host. A screen can render and still be
+  //     broken — a throwing listener, a throwing timer, a capability call
+  //     nobody awaited. None of these reject render(); onFault is the only
+  //     way the host learns of them. A mount-time throw is render()'s
+  //     rejection and must not be reported twice.
+  const faults = [];
+  const stopFaults = handle.onFault((fault) => faults.push(fault));
+  await handle.render(`
+    export default function mount(root, api) {
+      const btn = document.createElement("button");
+      btn.textContent = "broken";
+      btn.addEventListener("click", () => { throw new TypeError("listener exploded"); });
+      root.append(btn);
+      setTimeout(() => btn.click(), 10);
+      setTimeout(() => { throw "a thrown string"; }, 20);
+      setTimeout(() => { api.invoke("not.granted", {}); }, 30);
+    }
+  `);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const byKind = (kind) => faults.filter((f) => f.kind === kind);
+  record(
+    "fault: a throwing event listener reaches onFault with message and stack",
+    byKind("error").some((f) => /listener exploded/.test(f.message) && typeof f.stack === "string"),
+    JSON.stringify(faults.map((f) => [f.kind, f.message])),
+  );
+  record(
+    "fault: a thrown non-Error value is reported by its text, stack null",
+    byKind("error").some((f) => /a thrown string/.test(f.message) && f.stack === null),
+    JSON.stringify(byKind("error").map((f) => [f.message, f.stack === null])),
+  );
+  record(
+    "fault: an unawaited capability rejection reaches onFault as unhandledrejection",
+    byKind("unhandledrejection").some((f) => /not\.granted|not granted/i.test(f.message)),
+    JSON.stringify(byKind("unhandledrejection").map((f) => f.message)),
+  );
+  record("fault: exactly the three faults the code raised", faults.length === 3, String(faults.length));
+
+  const beforeMountThrow = faults.length;
+  const mountThrow = await expectReject(
+    handle.render(`export default function mount() { throw new Error("boom on the way up"); }`),
+    /boom on the way up/,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  record(
+    "fault: a mount-time throw rejects render() and is not reported again",
+    mountThrow.rejected && mountThrow.code === -32002 && faults.length === beforeMountThrow,
+    `code=${mountThrow.code} faultsAfter=${faults.length - beforeMountThrow}`,
+  );
+  const loadFail = await expectReject(handle.render("not javascript {{{ at all"), /./);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  record(
+    "fault: code that will not load rejects render() and is not reported again",
+    loadFail.rejected && faults.length === beforeMountThrow,
+    `faultsAfter=${faults.length - beforeMountThrow}`,
+  );
+  stopFaults();
+
   // 7. unmount hands back guest state
   await handle.render(`
     export default function mount(root, api) {

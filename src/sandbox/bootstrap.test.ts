@@ -141,3 +141,15 @@ test("identity runtime is injected as one self-contained factory", () => {
   assert.ok(html.includes("const { installStableIdentity } = (function"), "injected factory is invoked");
   assert.ok(html.includes("installStableIdentity"), "runtime installs identity maintenance");
 });
+
+test("the guest reports post-mount faults as a notification, capped, from both global failure events", () => {
+  const html = createBootstrapHtml();
+  assert.match(html, /addEventListener\("error"/);
+  assert.match(html, /addEventListener\("unhandledrejection"/);
+  assert.match(html, /method: "vivarium\/fault"/);
+  // a notification carries no id — the host answers nothing
+  const post = html.slice(html.indexOf('method: "vivarium/fault"') - 80, html.indexOf('method: "vivarium/fault"'));
+  assert.doesNotMatch(post, /\bid\b/);
+  assert.match(html, /capText\(message \|\| kind, 1000\)/);
+  assert.match(html, /capText\(thrown\.stack, 4000\)/);
+});

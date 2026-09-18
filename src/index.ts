@@ -31,6 +31,7 @@ export type {
   SandboxIframeElement,
   SandboxContainerElement,
   ElementIdEntry,
+  SandboxFault,
 } from "./sandbox/host.ts";
 
 export { CapabilityRegistry } from "./bridge/capabilities.ts";

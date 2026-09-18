@@ -271,6 +271,41 @@ handlers.set("vivarium/selection.set", (params) => {
   return { enabled };
 });
 
+/**
+ * Faults the generated code raises after mount — a throwing event listener or
+ * timer, a promise nobody handled. render() only covers the way up; from then
+ * on the code runs in a document the host cannot reach, so without this the
+ * host has no way to learn that a screen which rendered is broken. Reported
+ * as a notification (nothing to answer), and never for a mount-time throw:
+ * that one is already render()'s rejection.
+ *
+ * The text is authored by the generated code — untrusted data, capped like
+ * describeElement's, never interpreted here.
+ */
+function capText(value, limit) {
+  return value.length > limit ? value.slice(0, limit) + "…" : value;
+}
+
+function reportFault(kind, thrown, fallbackMessage) {
+  const hasMessage = thrown && typeof thrown.message === "string";
+  const message = hasMessage
+    ? thrown.message
+    : thrown !== undefined && thrown !== null ? String(thrown) : fallbackMessage;
+  const stack = thrown && typeof thrown.stack === "string" ? capText(thrown.stack, 4000) : null;
+  post({
+    jsonrpc: "2.0",
+    method: "vivarium/fault",
+    params: { kind, message: capText(message || kind, 1000), stack },
+  });
+}
+
+window.addEventListener("error", (event) => {
+  reportFault("error", event.error, event.message);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  reportFault("unhandledrejection", event.reason, "");
+});
+
 initResult = await request("vivarium/initialize", { protocolVersion: "__PROTOCOL_VERSION__" });
 post({ jsonrpc: "2.0", method: "vivarium/initialized" });
 `;

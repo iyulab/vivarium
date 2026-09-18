@@ -179,3 +179,22 @@ test("every entry point on a destroyed handle reports the closed channel", async
     );
   }
 });
+
+test("faults the guest reports after mount reach onFault listeners until they unsubscribe", async () => {
+  const dom = makeFakeDom();
+  const handle = mountSandbox(dom.container, { registry: new CapabilityRegistry() });
+  const seen: unknown[] = [];
+  const unsubscribe = handle.onFault((fault) => seen.push(fault));
+
+  const fault = { kind: "unhandledrejection", message: "capability not granted: nope", stack: null };
+  dom.emit({ jsonrpc: "2.0", method: "vivarium/fault", params: fault });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(seen, [fault]);
+  assert.equal(dom.sent.length, 0, "a fault is a notification — nothing is answered");
+
+  unsubscribe();
+  dom.emit({ jsonrpc: "2.0", method: "vivarium/fault", params: { ...fault, message: "again" } });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(seen.length, 1);
+  handle.destroy();
+});

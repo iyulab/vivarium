@@ -183,6 +183,43 @@ and is the only one a caller can do nothing about.
 code — an `api.onUnmount` provider that throws, say — is still reported as
 `-32603`.
 
+### Faults after mount
+
+A screen can render and still be broken: a click handler that throws, a timer
+that throws, a capability call nobody awaited. None of these reject
+`render()` — they happen later, inside a document the host cannot reach. The
+sandbox reports them instead:
+
+```ts
+import type { SandboxFault } from "@vivariumjs/runtime";
+
+const faults: SandboxFault[] = [];
+const stopFaults = sandbox.onFault((fault) => faults.push(fault));
+
+await sandbox.render(
+  "export default (root) => { root.onclick = () => { throw new Error('oops'); }; }",
+);
+// ...interact with the screen, then read what went wrong:
+for (const fault of faults) {
+  console.warn(`${fault.kind}: ${fault.message}`);
+}
+stopFaults();
+```
+
+`kind` is `"error"` (an exception thrown from a listener or timer) or
+`"unhandledrejection"` (a promise nobody handled). A throw during mount is
+**not** reported here — it is `render()`'s `GENERATED_CODE_FAULT` rejection, and
+reporting it twice would count one failure as two. Subscribe before `render()`
+to see everything the render led to.
+
+`message` and `stack` are written by the generated code, so treat them the way
+the edit context treats screen content: untrusted data to show or to hand a
+model inside a fence, never something to interpret. Both are length-capped, and
+`stack` is `null` when the thrown value had none (`throw "text"`).
+
+Together with `listIds()` and `describeElements()` this makes a complete
+headless check — render, interact, then read the ids, the text, and the faults.
+
 ## Execution profiles (TSX and friends)
 
 By default the sandbox runs plain-JS ES modules, like the example above.

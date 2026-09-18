@@ -25,6 +25,24 @@ export const METHOD_INSPECT_IDS = "vivarium/inspect.ids";
 export const METHOD_INSPECT_DESCRIBE = "vivarium/inspect.describe";
 export const METHOD_SELECTION_SET = "vivarium/selection.set";
 export const NOTIFICATION_SELECTION_CHANGED = "vivarium/selection.changed";
+export const NOTIFICATION_FAULT = "vivarium/fault";
+
+/**
+ * A fault the generated code raised after it mounted: an exception thrown
+ * from an event listener or timer (`"error"`), or a rejected promise nobody
+ * handled (`"unhandledrejection"`). A screen can render and still be broken;
+ * this is how the host finds out.
+ *
+ * `message` and `stack` are authored by the generated code — treat them as
+ * untrusted data, the same as an edit context's `untrusted` map (display
+ * them, feed them to a model as fenced data, never interpret them). Both are
+ * length-capped. `stack` is `null` when the thrown value carried none.
+ */
+export interface SandboxFault {
+  kind: "error" | "unhandledrejection";
+  message: string;
+  stack: string | null;
+}
 
 export interface ElementIdEntry {
   id: string;
@@ -102,6 +120,13 @@ export interface SandboxHandle {
   /** Subscribe to selections made inside the sandbox. Returns unsubscribe. */
   onSelectionChanged(listener: (element: ElementDescriptor) => void): () => void;
   /**
+   * Subscribe to faults the generated code raises after mounting (see
+   * {@link SandboxFault}). Returns unsubscribe. A throw during mount is not
+   * reported here — `render()` rejects with `GENERATED_CODE_FAULT` for it.
+   * Subscribe before `render()` to see everything the render produced.
+   */
+  onFault(listener: (fault: SandboxFault) => void): () => void;
+  /**
    * Assemble the versioned edit context (public contract, fixed principle 4)
    * for the given selected ids: structural selection + full screen id list +
    * backing source, with screen-derived content separated as untrusted data.
@@ -153,9 +178,13 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
   let destroyed = false;
   let lastSource: { language: string; code: string } | null = null;
   const selectionListeners = new Set<(element: ElementDescriptor) => void>();
+  const faultListeners = new Set<(fault: SandboxFault) => void>();
 
   bridge.endpoint.expose(NOTIFICATION_SELECTION_CHANGED, (params) => {
     for (const listener of [...selectionListeners]) listener(params as ElementDescriptor);
+  });
+  bridge.endpoint.expose(NOTIFICATION_FAULT, (params) => {
+    for (const listener of [...faultListeners]) listener(params as SandboxFault);
   });
 
   return {
@@ -197,6 +226,10 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
     onSelectionChanged(listener: (element: ElementDescriptor) => void): () => void {
       selectionListeners.add(listener);
       return () => selectionListeners.delete(listener);
+    },
+    onFault(listener: (fault: SandboxFault) => void): () => void {
+      faultListeners.add(listener);
+      return () => faultListeners.delete(listener);
     },
     async createEditContext(selectedIds: string[]): Promise<EditContext> {
       if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");
