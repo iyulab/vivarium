@@ -238,7 +238,6 @@ async function renderAndReport(code: string): Promise<string> {
 | `-32602` | `INVALID_PARAMS` | The request was rejected as given — malformed params | Caller: send something else |
 | `-32002` | `GENERATED_CODE_FAULT` | The request was fine and the runtime is fine; the supplied code would not load, does not default-export `mount(root, api)`, or threw while mounting | Whoever produced the code: regenerate it |
 | `-32001` | `ENDPOINT_CLOSED` | The handle was destroyed, or its endpoint closed | Caller: mount a new sandbox |
-| `-32000` | `CAPABILITY_DENIED` | A capability invocation was refused | Host: grant it, or stop calling it |
 | `-32603` | `INTERNAL_ERROR` | Everything else — the runtime's own failure | Report it; the message is the detail |
 
 The distinction that matters is three-way, not two. `-32602` says the call was
@@ -249,6 +248,35 @@ and is the only one a caller can do nothing about.
 `GENERATED_CODE_FAULT` covers the render path. A failure elsewhere in generated
 code — an `api.onUnmount` provider that throws, say — is still reported as
 `-32603`.
+
+### Refusing one call: `CAPABILITY_DENIED`
+
+One code in the list above never reaches the host, because the host is the one
+who sends it. A granted capability can still refuse a particular call — a
+permission it checks, a quota, a state it will not act in. Throw
+`CAPABILITY_DENIED` from the handler and the generated code's `api.invoke`
+rejects with it:
+
+```ts
+import { CAPABILITY_DENIED } from "@vivariumjs/runtime";
+
+registry.grant(
+  { name: "orders.cancel", description: "Cancel an order the user owns." },
+  (params) => {
+    const { id } = params as { id: string };
+    if (!id.startsWith("mine-")) {
+      throw new RpcError(CAPABILITY_DENIED, `order ${id} is not yours to cancel`);
+    }
+    return { cancelled: id };
+  },
+);
+```
+
+This is not the ungranted case. A capability that was never granted does not
+exist, so calling one is `METHOD_NOT_FOUND` — there was nothing to refuse.
+Keeping the two apart is what lets generated code tell *"not this time"* (show
+the reason) from *"no such thing"* (the code is wrong). Any other exception
+thrown from a handler reaches the generated code as `INTERNAL_ERROR`.
 
 ### Faults after mount
 

@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { createTransportPair } from "./transport.ts";
 import { CapabilityRegistry } from "./capabilities.ts";
 import { createHostBridge, createGuestBridge } from "./lifecycle.ts";
-import { BRIDGE_PROTOCOL_VERSION, RpcError, INVALID_PARAMS, METHOD_NOT_FOUND } from "./protocol.ts";
+import {
+  BRIDGE_PROTOCOL_VERSION,
+  RpcError,
+  INVALID_PARAMS,
+  METHOD_NOT_FOUND,
+  CAPABILITY_DENIED,
+} from "./protocol.ts";
 
 function makeRegistry(): CapabilityRegistry {
   const registry = new CapabilityRegistry();
@@ -120,5 +126,28 @@ test("emitting an ungranted event is a caller error — it does not exist in eit
   assert.throws(
     () => host.emit("audio.position", 1),
     (err: unknown) => err instanceof RpcError && err.code === INVALID_PARAMS && /not granted/.test(err.message),
+  );
+});
+
+test("a granted capability refuses one call with CAPABILITY_DENIED — distinct from an ungranted one", async () => {
+  const [hostSide, guestSide] = createTransportPair();
+  const registry = new CapabilityRegistry();
+  registry.grant({ name: "orders.cancel", description: "cancel an owned order" }, (params) => {
+    const { id } = params as { id: string };
+    if (!id.startsWith("mine-")) throw new RpcError(CAPABILITY_DENIED, `order ${id} is not yours to cancel`);
+    return { cancelled: id };
+  });
+  createHostBridge(hostSide, { registry });
+  const guest = createGuestBridge(guestSide);
+  await guest.initialize();
+
+  assert.deepEqual(await guest.invoke("orders.cancel", { id: "mine-1" }), { cancelled: "mine-1" });
+  await assert.rejects(
+    guest.invoke("orders.cancel", { id: "theirs-9" }),
+    (err: unknown) => err instanceof RpcError && err.code === CAPABILITY_DENIED && /not yours/.test(err.message),
+  );
+  await assert.rejects(
+    guest.invoke("orders.delete", { id: "mine-1" }),
+    (err: unknown) => err instanceof RpcError && err.code === METHOD_NOT_FOUND,
   );
 });

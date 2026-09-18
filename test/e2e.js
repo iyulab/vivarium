@@ -7,6 +7,7 @@
  */
 import { mountSandbox } from "../src/sandbox/host.ts";
 import { CapabilityRegistry } from "../src/bridge/capabilities.ts";
+import { RpcError, CAPABILITY_DENIED } from "../src/bridge/protocol.ts";
 
 const results = [];
 
@@ -44,6 +45,9 @@ async function main() {
   });
 
   registry.grantEvent({ name: "clock.tick", description: "host clock, pushed (e2e)" });
+  registry.grant({ name: "data.guarded", description: "refuses every call (e2e)" }, () => {
+    throw new RpcError(CAPABILITY_DENIED, "not for you");
+  });
 
   const handle = mountSandbox(stage, {
     registry,
@@ -319,6 +323,27 @@ async function main() {
     JSON.stringify([tickDesc.map((d) => d.text), eventFaults.length]),
   );
   stopEventFaults();
+
+  // 6.97 a granted capability refusing one call reaches the generated code as
+  //      CAPABILITY_DENIED — not METHOD_NOT_FOUND, which means "no such thing".
+  await handle.render(`
+    export default async function mount(root, api) {
+      const out = document.createElement("output");
+      root.append(out);
+      const codes = [];
+      for (const name of ["data.guarded", "data.nothing"]) {
+        try { await api.invoke(name, {}); codes.push("resolved"); } catch (err) { codes.push(err.code + ":" + err.message); }
+      }
+      out.textContent = codes.join(" | ");
+    }
+  `);
+  const deniedIds = await handle.listIds();
+  const deniedText = (await handle.describeElements(deniedIds.map((e) => e.id))).find((d) => d.tag === "output");
+  record(
+    "capability: a handler's CAPABILITY_DENIED reaches api.invoke, apart from an ungranted call",
+    deniedText && deniedText.text === "-32000:not for you | -32601:method not found: cap:data.nothing",
+    deniedText && deniedText.text,
+  );
 
   // 7. unmount hands back guest state
   await handle.render(`

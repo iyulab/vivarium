@@ -55,6 +55,19 @@ export const INVALID_PARAMS = -32602;
 export const INTERNAL_ERROR = -32603;
 
 /** Vivarium bridge error codes (implementation-defined range -32000..-32099). */
+/**
+ * A granted capability refused this particular call — a permission it checks,
+ * a quota, a state it will not act in. The runtime never raises it: it is the
+ * host's word, thrown from a capability handler as
+ * `new RpcError(CAPABILITY_DENIED, reason)`, and the generated code receives
+ * it as the rejection of `api.invoke`.
+ *
+ * It is not the ungranted case. A capability that was never granted does not
+ * exist (fixed principle 2), so calling one is METHOD_NOT_FOUND — nothing was
+ * there to refuse. Keeping the two apart is what lets generated code tell
+ * "you may not, this time" (show the reason, maybe try later) from "there is
+ * no such thing" (the code is wrong).
+ */
 export const CAPABILITY_DENIED = -32000;
 export const ENDPOINT_CLOSED = -32001;
 /**
