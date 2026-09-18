@@ -3,6 +3,52 @@
 All notable changes to `@vivariumjs/runtime` are documented here.
 Versioning: 0.x — minor for surface changes, patch for fixes.
 
+## 0.3.0 — 2026-09-18
+
+> Published as `@vivariumjs/runtime@0.3.0`, tag `v0.3.0`.
+> Minor: the host handle, the capability registry and the generated code's `api` all
+> gain members. Nothing existing changes shape.
+
+### Added
+- **Faults after mount reach the host.** A screen can render and still be broken —
+  a click handler that throws, a timer that throws, a capability call nobody awaited.
+  None of these reject `render()`, and the host could not see them at all: they
+  happen inside an opaque-origin document it cannot reach. `SandboxHandle.onFault`
+  now delivers them as `SandboxFault { kind: "error" | "unhandledrejection", message,
+  stack }`, with the text length-capped and documented as untrusted data authored by
+  the generated code. A throw during mount stays `render()`'s `GENERATED_CODE_FAULT`
+  rejection and is not reported twice. Together with `listIds()` and
+  `describeElements()` this completes a headless check: render, interact, read ids,
+  text and faults.
+- **A single-file classic build for pages that cannot load modules.** A page opened
+  from `file://` has an opaque origin and module scripts are fetched with CORS, so the
+  ESM entry never loads there — import map or not. `dist/vivarium.iife.js` is the
+  package root bundled into one classic script that assigns the global `Vivarium`,
+  resolvable as `@vivariumjs/runtime/vivarium.iife.js` and named in the
+  `unpkg`/`jsdelivr` fields. CI checks that it parses as a classic script and carries
+  exactly the root's exports.
+- **The host can push events into the sandbox.** The bridge ran one way for
+  application traffic: generated code could ask (`api.invoke`), but a screen that
+  had to follow host state — a media element's position, a file that just arrived —
+  could only poll. `registry.grantEvent({ name, description })` grants an event,
+  `SandboxHandle.emit(name, payload)` delivers it, and the generated code subscribes
+  with `api.on(name, handler)` (returns unsubscribe) and enumerates grants with
+  `api.events`. The capability discipline holds in the other direction: an ungranted
+  name does not exist — `emit` rejects with `INVALID_PARAMS`, `api.on` throws at the
+  call — and `registry.listEvents()` completes the audit list. A new render ends the
+  previous module's subscriptions; a handler that throws arrives through `onFault`.
+  `InitializeResult` gains `events`.
+
+### Fixed
+- **`CAPABILITY_DENIED` says what it is for.** The constant was public and documented as
+  "a capability invocation was refused — grant it", the same advice as
+  `METHOD_NOT_FOUND`, yet the runtime never raised it. It is the host's word: a granted
+  capability refusing one call throws `new RpcError(CAPABILITY_DENIED, reason)` from its
+  handler, and the generated code's `api.invoke` rejects with it. An ungranted
+  capability stays `METHOD_NOT_FOUND` — there was nothing to refuse. The error-code
+  table no longer lists it among the codes a host receives, and a section shows the
+  handler side.
+
 ## 0.2.0 — 2026-08-06
 
 > Published as `@vivariumjs/runtime@0.2.0`, tag `v0.2.0`.
