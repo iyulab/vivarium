@@ -12,10 +12,26 @@ import type { RpcEndpoint, MethodHandler } from "./endpoint.ts";
 
 export const CAPABILITY_METHOD_PREFIX = "cap:";
 
+/**
+ * Events travel the other way: the host emits, the sandbox listens. An event
+ * is delivered as the JSON-RPC notification `evt:<name>`, and only a granted
+ * name can be emitted or subscribed to — so the registry enumerates what the
+ * generated UI can *hear* exactly as it enumerates what it can *do*.
+ */
+export const EVENT_METHOD_PREFIX = "evt:";
+
 export interface CapabilityDescriptor {
   /** Namespaced capability name, e.g. "data.query" or "events.emit". */
   name: string;
   /** Human/agent-readable summary of what invoking this does. */
+  description: string;
+}
+
+/** A host→sandbox event the generated UI may subscribe to. */
+export interface EventDescriptor {
+  /** Namespaced event name, e.g. "audio.position". Same grammar as capabilities. */
+  name: string;
+  /** Human/agent-readable summary of when it fires and what it carries. */
   description: string;
 }
 
@@ -32,6 +48,7 @@ export function isValidCapabilityName(name: string): boolean {
 
 export class CapabilityRegistry {
   private grants = new Map<string, CapabilityGrant>();
+  private events = new Map<string, EventDescriptor>();
 
   grant(descriptor: CapabilityDescriptor, handler: MethodHandler): void {
     if (!isValidCapabilityName(descriptor.name)) {
@@ -60,6 +77,36 @@ export class CapabilityRegistry {
 
   getHandler(name: string): MethodHandler | undefined {
     return this.grants.get(name)?.handler;
+  }
+
+  /**
+   * Grant an event the host may emit and the generated UI may subscribe to.
+   * Events and capabilities are separate namespaces: "audio.position" can be
+   * both a capability (ask for it) and an event (be told of it).
+   */
+  grantEvent(descriptor: EventDescriptor): void {
+    if (!isValidCapabilityName(descriptor.name)) {
+      throw new Error(
+        `invalid event name "${descriptor.name}" (expected dot-separated lowercase segments)`,
+      );
+    }
+    if (this.events.has(descriptor.name)) {
+      throw new Error(`event already granted: ${descriptor.name}`);
+    }
+    this.events.set(descriptor.name, descriptor);
+  }
+
+  revokeEvent(name: string): boolean {
+    return this.events.delete(name);
+  }
+
+  hasEvent(name: string): boolean {
+    return this.events.has(name);
+  }
+
+  /** The other half of the audit surface: every event the generated UI can hear. */
+  listEvents(): EventDescriptor[] {
+    return [...this.events.values()];
   }
 }
 

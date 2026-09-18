@@ -104,7 +104,12 @@ test("every guest parameter check reports a caller error, not a runtime error", 
     assert.ok(html.includes(`generatedCodeFault("${fault}"`), `"${fault}" must be a generated-code fault`);
   }
 
-  assert.ok(!/throw new Error\(/.test(html), "no guest failure is left unclassified by omission");
+  // One throw is not a reply at all: `api.on` refusing an ungranted event is
+  // thrown into the generated code that called it. It reaches the host already
+  // classified — as a mount fault if thrown while mounting, through onFault
+  // after — so it is exempt by name, and nothing else is.
+  const unclassified = html.replaceAll('throw new Error("event not granted: " + name)', "");
+  assert.ok(!/throw new Error\(/.test(unclassified), "no guest failure is left unclassified by omission");
 });
 
 test("profile modules embed as a data: import map ahead of the runtime, widening CSP only then", () => {
@@ -152,4 +157,14 @@ test("the guest reports post-mount faults as a notification, capped, from both g
   assert.doesNotMatch(post, /\bid\b/);
   assert.match(html, /capText\(message \|\| kind, 1000\)/);
   assert.match(html, /capText\(thrown\.stack, 4000\)/);
+});
+
+test("host events dispatch to api.on handlers uncaught, and a new render ends the old subscriptions", () => {
+  const html = createBootstrapHtml();
+  assert.match(html, /msg\.method\.startsWith\("evt:"\)/);
+  assert.match(html, /queueMicrotask\(\(\) => listener\(payload\)\)/, "each handler runs where a throw becomes a fault");
+  const render = html.slice(html.indexOf('handlers.set("vivarium/render"'));
+  assert.ok(render.indexOf("eventHandlers.clear()") !== -1 && render.indexOf("eventHandlers.clear()") < render.indexOf("module.default(root, api)"),
+    "subscriptions are cleared before the new module mounts");
+  assert.match(html, /throw new Error\("event not granted: " \+ name\)/, "api.on is fail-closed");
 });

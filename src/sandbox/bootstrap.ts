@@ -75,6 +75,8 @@ const handlers = new Map();
 let nextId = 1;
 let initResult = null;
 let unmountProvider = null;
+/** event name → Set of the current module's handlers (cleared on render/unmount). */
+const eventHandlers = new Map();
 
 /**
  * A failure the guest classified itself. Mirrors the host endpoint's rule
@@ -149,6 +151,8 @@ window.addEventListener("message", (event) => {
           (result) => post({ jsonrpc: "2.0", id: msg.id, result: result === undefined ? null : result }),
           (err) => post({ jsonrpc: "2.0", id: msg.id, error: toErrorShape(err) }),
         );
+    } else if (msg.method.startsWith("evt:")) {
+      dispatchEvent(msg.method.slice(4), msg.params);
     } else if (handler) {
       Promise.resolve().then(() => handler(msg.params)).catch(() => {});
     }
@@ -164,7 +168,22 @@ window.addEventListener("message", (event) => {
   }
 });
 
+/**
+ * Host events reach the current module's api.on handlers. Each handler runs
+ * in its own microtask and nothing here catches it: a throw or a rejected
+ * promise from a handler is the generated code failing after mount, so it
+ * must surface as a fault — swallowing it (as a notification's runtime
+ * handler may) would hide exactly what onFault exists to show.
+ */
+function dispatchEvent(name, params) {
+  const set = eventHandlers.get(name);
+  if (!set) return;
+  const payload = params && "payload" in params ? params.payload : null;
+  for (const listener of [...set]) queueMicrotask(() => listener(payload));
+}
+
 handlers.set("vivarium/unmount", async () => {
+  eventHandlers.clear();
   const state = unmountProvider ? await unmountProvider() : undefined;
   return state === undefined ? {} : { state };
 });
@@ -189,6 +208,9 @@ handlers.set("vivarium/render", async (params) => {
     throw generatedCodeFault("generated module must default-export mount(root, api)");
   }
   unmountProvider = null;
+  // The previous module's subscriptions end with it — otherwise its handlers
+  // keep firing into a screen that is no longer theirs.
+  eventHandlers.clear();
   if (identityMaintainer) identityMaintainer.disconnect();
   root.replaceChildren();
   // Identity maintenance starts BEFORE mount runs, so elements are
@@ -199,6 +221,20 @@ handlers.set("vivarium/render", async (params) => {
     context: initResult.context,
     capabilities: initResult.capabilities,
     invoke: (name, invokeParams) => request("cap:" + name, invokeParams),
+    events: initResult.events || [],
+    on: (name, listener) => {
+      // Fail-closed, and at the call: an ungranted event does not exist, so
+      // subscribing to one is a mistake the author should see now rather
+      // than a handler that silently never fires.
+      if (!(initResult.events || []).some((e) => e.name === name)) {
+        throw new Error("event not granted: " + name);
+      }
+      if (typeof listener !== "function") throw new TypeError("api.on requires a handler function");
+      let set = eventHandlers.get(name);
+      if (!set) { set = new Set(); eventHandlers.set(name, set); }
+      set.add(listener);
+      return () => { set.delete(listener); };
+    },
     onUnmount: (provider) => { unmountProvider = provider; },
   };
   try {

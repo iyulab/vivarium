@@ -117,6 +117,15 @@ export interface SandboxHandle {
   describeElements(ids: string[]): Promise<ElementDescriptor[]>;
   /** Toggle click-to-select inside the sandbox. */
   setSelectionMode(enabled: boolean): Promise<void>;
+  /**
+   * Deliver a granted event to the generated UI (see
+   * `CapabilityRegistry.grantEvent`); its `api.on(name, handler)` handlers
+   * receive `payload`. Waits for the handshake like every other call, then is
+   * fire-and-forget — nothing is answered, and an event nobody subscribed to
+   * is delivered to nobody. Rejects with `INVALID_PARAMS` for an ungranted
+   * name. A handler that throws is reported through `onFault`.
+   */
+  emit(event: string, payload?: unknown): Promise<void>;
   /** Subscribe to selections made inside the sandbox. Returns unsubscribe. */
   onSelectionChanged(listener: (element: ElementDescriptor) => void): () => void;
   /**
@@ -202,6 +211,11 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
       // Recorded only after a successful render: the edit context must
       // describe the source actually backing the screen.
       lastSource = { language: options.profile?.language ?? "js", code };
+    },
+    async emit(event: string, payload?: unknown): Promise<void> {
+      if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");
+      await ready;
+      bridge.emit(event, payload);
     },
     async requestUnmount(): Promise<UnmountResult> {
       if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");

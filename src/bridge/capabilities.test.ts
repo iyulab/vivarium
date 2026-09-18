@@ -62,3 +62,17 @@ test("bound capabilities are invocable as cap:<name>; unbound do not exist", asy
     (err: unknown) => err instanceof RpcError && err.code === METHOD_NOT_FOUND,
   );
 });
+
+test("events are granted, listed and revoked apart from capabilities", () => {
+  const registry = new CapabilityRegistry();
+  registry.grant({ name: "audio.position", description: "ask for the position" }, () => 0);
+  registry.grantEvent({ name: "audio.position", description: "told of the position" });
+  assert.deepEqual(registry.list().map((c) => c.name), ["audio.position"]);
+  assert.deepEqual(registry.listEvents(), [{ name: "audio.position", description: "told of the position" }]);
+  assert.equal(registry.hasEvent("audio.position"), true);
+  assert.throws(() => registry.grantEvent({ name: "audio.position", description: "again" }), /already granted/);
+  assert.throws(() => registry.grantEvent({ name: "Bad Name", description: "x" }), /invalid event name/);
+  assert.equal(registry.revokeEvent("audio.position"), true);
+  assert.equal(registry.hasEvent("audio.position"), false);
+  assert.equal(registry.has("audio.position"), true, "revoking the event leaves the capability");
+});

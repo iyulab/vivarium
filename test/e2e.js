@@ -43,6 +43,8 @@ async function main() {
     return null;
   });
 
+  registry.grantEvent({ name: "clock.tick", description: "host clock, pushed (e2e)" });
+
   const handle = mountSandbox(stage, {
     registry,
     context: { user: "e2e", locale: "ko" },
@@ -249,6 +251,74 @@ async function main() {
     `faultsAfter=${faults.length - beforeMountThrow}`,
   );
   stopFaults();
+
+  // 6.95 host → sandbox events. The generated UI follows host state without
+  //      polling: it subscribes to a granted event, the host pushes, the
+  //      screen changes. Ungranted names fail closed at the call; a throwing
+  //      handler is a post-mount fault; a new render ends old subscriptions.
+  const eventFaults = [];
+  const stopEventFaults = handle.onFault((fault) => eventFaults.push(fault));
+  await handle.render(`
+    export default function mount(root, api) {
+      const out = document.createElement("output");
+      out.textContent = "waiting";
+      root.append(out);
+      const listed = api.events.map((e) => e.name).join(",");
+      let refused = "no";
+      try { api.on("clock.nope", () => {}); } catch (err) { refused = String(err.message); }
+      out.dataset.listed = listed;
+      out.dataset.refused = refused;
+      api.on("clock.tick", (payload) => { out.textContent = "tick " + payload.n; });
+      api.on("clock.tick", (payload) => { if (payload.n === 2) throw new Error("tick handler broke"); });
+    }
+  `);
+  await handle.emit("clock.tick", { n: 1 });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  let tickIds = await handle.listIds();
+  let tickDesc = await handle.describeElements(tickIds.map((e) => e.id));
+  const out1 = tickDesc.find((d) => d.tag === "output");
+  record(
+    "event: a pushed event reaches the generated UI and changes the screen",
+    out1 && out1.text === "tick 1",
+    JSON.stringify(out1),
+  );
+  record(
+    "event: api.events enumerates the grants; an ungranted name is refused at api.on",
+    out1 && out1.attributes["data-listed"] === "clock.tick" && /not granted: clock\.nope/.test(out1.attributes["data-refused"]),
+    JSON.stringify(out1 && out1.attributes),
+  );
+  await handle.emit("clock.tick", { n: 2 });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  tickDesc = await handle.describeElements(tickIds.map((e) => e.id));
+  record(
+    "event: a throwing handler is one fault, and the other handler still ran",
+    eventFaults.length === 1 && /tick handler broke/.test(eventFaults[0].message) &&
+      tickDesc.find((d) => d.tag === "output").text === "tick 2",
+    JSON.stringify(eventFaults.map((f) => f.message)),
+  );
+  const ungrantedEmit = await expectReject(handle.emit("clock.nope", {}), /not granted/);
+  record(
+    "event: emitting an ungranted event rejects as INVALID_PARAMS",
+    ungrantedEmit.rejected && ungrantedEmit.code === -32602,
+    `code=${ungrantedEmit.code} ${ungrantedEmit.message}`,
+  );
+  await handle.render(`
+    export default function mount(root) {
+      const out = document.createElement("output");
+      out.textContent = "fresh";
+      root.append(out);
+    }
+  `);
+  await handle.emit("clock.tick", { n: 3 });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  tickIds = await handle.listIds();
+  tickDesc = await handle.describeElements(tickIds.map((e) => e.id));
+  record(
+    "event: a new render ends the previous module's subscriptions",
+    tickDesc.find((d) => d.tag === "output").text === "fresh" && eventFaults.length === 1,
+    JSON.stringify([tickDesc.map((d) => d.text), eventFaults.length]),
+  );
+  stopEventFaults();
 
   // 7. unmount hands back guest state
   await handle.render(`

@@ -27,7 +27,7 @@ A second, equally important problem: once generated UI is on screen, humans poin
 ## What Vivarium is
 
 - **An execution sandbox.** Generated UI code runs in an isolated realm. It cannot reach the host page, host storage, or the network except through the bridge the host installs.
-- **A capability bridge.** The only channel between sandbox and host. The host decides what the generated code may do: which data APIs it can call, which events it can emit. Nothing is ambient.
+- **A capability bridge.** The only channel between sandbox and host. The host decides what the generated code may do and hear: which data APIs it can call, which events it can emit, which host events it can subscribe to. Nothing is ambient.
 - **A primitive surface.** A curated set of UI building blocks (inputs, lists, layout, data views) that generated code composes. The set is versioned and enumerable, so agents can be taught exactly what exists.
 - **An identity and inspection layer.** Every rendered element carries a stable ID that survives re-renders and re-generations. Users can select elements; selections serialize into an **edit context** — a machine-readable description of "what the user is pointing at, in which screen, backed by which source" — consumable by any editing agent.
 - **A no-build path from generation to pixels.** Generated code renders without an offline compile/bundle/deploy cycle. Changes appear in seconds, not pipelines.
@@ -55,7 +55,8 @@ These are the anchors. An implementation that violates one of these is not Vivar
   `default-src 'none'` document CSP — network egress is closed; the bridge is
   the only channel.
 - Bridge: JSON-RPC 2.0 over postMessage; capabilities surface as enumerable
-  `cap:<name>` methods granted by the host.
+  `cap:<name>` methods granted by the host, and host events travel the other
+  way as `evt:<name>` notifications — granted by name, subscribed to by name.
 - Generated code: ES modules, default-exporting `mount(root, api)`. Execution
   profiles are pluggable data (embedded module import map + host-side source
   transform); the reference profile is React + TSX via Sucrase.

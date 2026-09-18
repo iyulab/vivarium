@@ -110,11 +110,55 @@ Inside the sandbox, `api` is small and fixed:
 | `api.context` | The opaque `context` you passed to `mountSandbox` |
 | `api.capabilities` | The granted capability descriptors, enumerable |
 | `api.invoke(name, params?)` | Call a granted capability (`orders.list` above) |
+| `api.events` | The granted event descriptors, enumerable |
+| `api.on(name, handler)` | Subscribe to a granted host event; returns unsubscribe |
 | `api.onUnmount(provider)` | Register state to hand back when the host unmounts |
 
 Calling a capability that was never granted rejects: the method simply does
 not exist on the bridge (`METHOD_NOT_FOUND`) — the generated code cannot
 escalate.
+
+### Pushing host state in: events
+
+Capabilities are the generated code asking; events are the host telling.
+When the screen has to follow something that lives in the host — a media
+element's position, a file that just arrived, a job's progress — grant an
+event and emit it, rather than having the code poll:
+
+```ts
+const playerRegistry = new CapabilityRegistry();
+playerRegistry.grantEvent({
+  name: "audio.position",
+  description: "Playback position in seconds, pushed while playing.",
+});
+
+const player = mountSandbox(document.getElementById("player")!, {
+  registry: playerRegistry,
+});
+await player.render(`
+  export default function mount(root, api) {
+    const out = document.createElement("output");
+    root.append(out);
+    api.on("audio.position", (payload) => {
+      out.textContent = payload.t.toFixed(1) + "s";
+    });
+  }
+`);
+
+await player.emit("audio.position", { t: 12.5 });
+```
+
+The discipline is the capability one, turned around. Only a granted name
+exists: `emit` rejects an ungranted one with `INVALID_PARAMS`, and `api.on`
+throws for it at the call, so a typo is an error rather than a handler that
+never fires. `registry.listEvents()` and `api.events` enumerate what the
+generated UI can hear, as `list()` and `api.capabilities` enumerate what it
+can do. Grant before mounting — the list travels at initialize.
+
+Delivery is fire-and-forget: nothing is answered, and an event nobody
+subscribed to reaches nobody. A new `render()` ends the previous module's
+subscriptions. A handler that throws is the generated code failing after
+mount, and arrives through `onFault` (§5).
 
 ## 3. Inspect: selections become edit contexts
 

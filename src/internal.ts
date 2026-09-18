@@ -55,7 +55,12 @@ export type {
 export { RpcEndpoint } from "./bridge/endpoint.ts";
 export type { MethodHandler, RpcEndpointOptions } from "./bridge/endpoint.ts";
 
-export { CAPABILITY_METHOD_PREFIX, bindCapabilities, isValidCapabilityName } from "./bridge/capabilities.ts";
+export {
+  CAPABILITY_METHOD_PREFIX,
+  EVENT_METHOD_PREFIX,
+  bindCapabilities,
+  isValidCapabilityName,
+} from "./bridge/capabilities.ts";
 
 export {
   METHOD_INITIALIZE,

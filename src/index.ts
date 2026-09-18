@@ -35,7 +35,7 @@ export type {
 } from "./sandbox/host.ts";
 
 export { CapabilityRegistry } from "./bridge/capabilities.ts";
-export type { CapabilityDescriptor, CapabilityGrant } from "./bridge/capabilities.ts";
+export type { CapabilityDescriptor, CapabilityGrant, EventDescriptor } from "./bridge/capabilities.ts";
 
 export { EDIT_CONTEXT_VERSION } from "./inspect/edit-context.ts";
 export type {

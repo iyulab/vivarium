@@ -11,8 +11,13 @@
 import type { Transport } from "./transport.ts";
 import { RpcEndpoint } from "./endpoint.ts";
 import type { RpcEndpointOptions } from "./endpoint.ts";
-import { CapabilityRegistry, bindCapabilities, CAPABILITY_METHOD_PREFIX } from "./capabilities.ts";
-import type { CapabilityDescriptor } from "./capabilities.ts";
+import {
+  CapabilityRegistry,
+  bindCapabilities,
+  CAPABILITY_METHOD_PREFIX,
+  EVENT_METHOD_PREFIX,
+} from "./capabilities.ts";
+import type { CapabilityDescriptor, EventDescriptor } from "./capabilities.ts";
 import { BRIDGE_PROTOCOL_VERSION, RpcError, INVALID_PARAMS } from "./protocol.ts";
 
 export const METHOD_INITIALIZE = "vivarium/initialize";
@@ -30,6 +35,8 @@ export interface InitializeResult {
   context: unknown;
   /** Everything the guest is allowed to do — the audit list. */
   capabilities: CapabilityDescriptor[];
+  /** Everything the guest may subscribe to — the other half of the audit list. */
+  events: EventDescriptor[];
 }
 
 export interface UnmountResult {
@@ -51,6 +58,12 @@ export interface HostBridge {
   initialized(): boolean;
   /** Ask the guest to unmount; resolves with any state it wants persisted. */
   requestUnmount(): Promise<UnmountResult>;
+  /**
+   * Deliver a granted event to the guest (`evt:<name>`, params `{ payload }`).
+   * Fire-and-forget. Throws `INVALID_PARAMS` for a name the registry does not
+   * grant — an ungranted event does not exist, in either direction.
+   */
+  emit(event: string, payload?: unknown): void;
   close(): void;
 }
 
@@ -69,6 +82,7 @@ export function createHostBridge(transport: Transport, options: HostBridgeOption
       protocolVersion: BRIDGE_PROTOCOL_VERSION,
       context: options.context ?? null,
       capabilities: options.registry.list(),
+      events: options.registry.listEvents(),
     };
     return result;
   });
@@ -93,6 +107,12 @@ export function createHostBridge(transport: Transport, options: HostBridgeOption
       if (result === null || result === undefined) return {};
       return result as UnmountResult;
     },
+    emit(event: string, payload?: unknown): void {
+      if (!options.registry.hasEvent(event)) {
+        throw new RpcError(INVALID_PARAMS, `event not granted: ${event}`);
+      }
+      endpoint.notify(EVENT_METHOD_PREFIX + event, { payload: payload === undefined ? null : payload });
+    },
     close: () => endpoint.close(),
   };
 }
@@ -108,11 +128,14 @@ export interface GuestBridge {
   initialize(): Promise<InitializeResult>;
   /** Invoke a granted capability by name (without the `cap:` prefix). */
   invoke(capability: string, params?: unknown): Promise<unknown>;
+  /** Subscribe to a host event by name (without the `evt:` prefix). Returns unsubscribe. */
+  on(event: string, handler: (payload: unknown) => void): () => void;
   close(): void;
 }
 
 export function createGuestBridge(transport: Transport, options: GuestBridgeOptions = {}): GuestBridge {
   const endpoint = new RpcEndpoint(transport, options);
+  const listeners = new Map<string, Set<(payload: unknown) => void>>();
 
   endpoint.expose(METHOD_UNMOUNT, async () => {
     const state = await options.onUnmount?.();
@@ -130,6 +153,21 @@ export function createGuestBridge(transport: Transport, options: GuestBridgeOpti
     },
     invoke(capability: string, params?: unknown): Promise<unknown> {
       return endpoint.request(CAPABILITY_METHOD_PREFIX + capability, params);
+    },
+    on(event: string, handler: (payload: unknown) => void): () => void {
+      let set = listeners.get(event);
+      if (!set) {
+        const created = new Set<(payload: unknown) => void>();
+        listeners.set(event, created);
+        endpoint.expose(EVENT_METHOD_PREFIX + event, (params) => {
+          const payload = (params as { payload?: unknown } | undefined)?.payload ?? null;
+          for (const listener of [...created]) listener(payload);
+        });
+        set = created;
+      }
+      const own = set;
+      own.add(handler);
+      return () => void own.delete(handler);
     },
     close: () => endpoint.close(),
   };

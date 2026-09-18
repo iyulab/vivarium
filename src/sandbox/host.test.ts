@@ -198,3 +198,24 @@ test("faults the guest reports after mount reach onFault listeners until they un
   assert.equal(seen.length, 1);
   handle.destroy();
 });
+
+test("emit waits for the handshake, then sends a granted event as an evt: notification", async () => {
+  const dom = makeFakeDom();
+  const registry = new CapabilityRegistry();
+  registry.grantEvent({ name: "files.arrived", description: "a file was added" });
+  const handle = mountSandbox(dom.container, { registry });
+
+  const emitted = handle.emit("files.arrived", { name: "a.m4a" });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(dom.sent.length, 0, "nothing is sent before the guest is ready");
+
+  dom.emit({ jsonrpc: "2.0", id: 1, method: "vivarium/initialize", params: { protocolVersion: "0.1" } });
+  dom.emit({ jsonrpc: "2.0", method: "vivarium/initialized" });
+  await emitted;
+  const event = dom.sent.find((m) => (m as { method?: string }).method === "evt:files.arrived");
+  assert.deepEqual(event, { jsonrpc: "2.0", method: "evt:files.arrived", params: { payload: { name: "a.m4a" } } });
+
+  await assert.rejects(handle.emit("files.gone"), /not granted/);
+  handle.destroy();
+  await assert.rejects(handle.emit("files.arrived"), (err: unknown) => err instanceof RpcError && err.code === ENDPOINT_CLOSED);
+});

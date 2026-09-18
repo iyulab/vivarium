@@ -90,3 +90,35 @@ test("host context defaults to null and capability list may be empty", async () 
   assert.equal(result.context, null);
   assert.deepEqual(result.capabilities, []);
 });
+
+test("granted events reach the guest's handlers with their payload; the list travels at initialize", async () => {
+  const [hostSide, guestSide] = createTransportPair();
+  const registry = makeRegistry();
+  registry.grantEvent({ name: "audio.position", description: "playback position in seconds" });
+  const host = createHostBridge(hostSide, { registry });
+  const guest = createGuestBridge(guestSide);
+  const result = await guest.initialize();
+  assert.deepEqual(result.events.map((e) => e.name), ["audio.position"]);
+
+  const seen: unknown[] = [];
+  const stop = guest.on("audio.position", (payload) => seen.push(payload));
+  host.emit("audio.position", { t: 12.5 });
+  host.emit("audio.position", 3);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(seen, [{ t: 12.5 }, 3]);
+
+  stop();
+  host.emit("audio.position", { t: 13 });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(seen.length, 2, "unsubscribed handlers hear nothing");
+});
+
+test("emitting an ungranted event is a caller error — it does not exist in either direction", async () => {
+  const [hostSide, guestSide] = createTransportPair();
+  const host = createHostBridge(hostSide, { registry: makeRegistry() });
+  createGuestBridge(guestSide);
+  assert.throws(
+    () => host.emit("audio.position", 1),
+    (err: unknown) => err instanceof RpcError && err.code === INVALID_PARAMS && /not granted/.test(err.message),
+  );
+});
