@@ -38,6 +38,9 @@ jobs:
       # Exports point at dist/ — build it first (folder installs don't run prepack).
       - run: npm ci
       - run: npm run build
+      # The classic build (dist/vivarium.iife.js) parses as a Script and its
+      # global carries exactly the package root's exports.
+      - run: node tools/verify-iife.ts
       - name: Fresh consumer installs and imports @vivariumjs/runtime
         run: |
           mkdir "$RUNNER_TEMP/consumer" && cd "$RUNNER_TEMP/consumer"

@@ -1,0 +1,80 @@
+<!doctype html>
+<!--
+  Classic-build e2e: open this file directly (file://), no server.
+  A file:// page has an opaque origin and cannot load module scripts; the
+  classic build must work there. Build first: npm run build.
+  Results land in window.__E2E__ = { done, passed, failed, results }.
+-->
+<html>
+<head><meta charset="utf-8"><title>vivarium classic build e2e (file://)</title></head>
+<body>
+<p id="status">running…</p>
+<ul id="results"></ul>
+<div id="stage"></div>
+<script src="../dist/vivarium.iife.js"></script>
+<script>
+(async function () {
+  const results = [];
+  const record = (name, ok, detail) => {
+    results.push({ name, ok, detail: detail === undefined ? null : String(detail) });
+    const li = document.createElement("li");
+    li.textContent = (ok ? "PASS " : "FAIL ") + name + (detail !== undefined ? " — " + detail : "");
+    document.getElementById("results").append(li);
+  };
+  try {
+    record("page is on file://", location.protocol === "file:", location.protocol);
+    record("classic script assigned the global", typeof Vivarium === "object" && typeof Vivarium.mountSandbox === "function");
+
+    const registry = new Vivarium.CapabilityRegistry();
+    const invoked = [];
+    registry.grant({ name: "data.rows", description: "rows" }, () => {
+      invoked.push(true);
+      return ["첫째", "둘째"];
+    });
+    const handle = Vivarium.mountSandbox(document.getElementById("stage"), { registry });
+    await handle.whenReady();
+    record("sandbox handshake completes from a file:// host", true);
+
+    await handle.render(`
+      export default async function mount(root, api) {
+        const rows = await api.invoke("data.rows");
+        const ul = document.createElement("ul");
+        for (const r of rows) { const li = document.createElement("li"); li.textContent = r; ul.append(li); }
+        root.append(ul);
+      }
+    `);
+    const ids = await handle.listIds();
+    const described = await handle.describeElements(ids.map((e) => e.id));
+    record(
+      "render → capability → stable ids → describe",
+      invoked.length === 1 && ids.length === 3 && described.some((d) => d.text === "둘째"),
+      JSON.stringify(described.map((d) => [d.tag, d.text])),
+    );
+
+    const faults = [];
+    handle.onFault((f) => faults.push(f));
+    await handle.render(`export default (root) => { setTimeout(() => { throw new Error("late"); }, 10); };`);
+    await new Promise((r) => setTimeout(r, 150));
+    record("post-mount fault reaches the host", faults.length === 1 && /late/.test(faults[0].message), JSON.stringify(faults));
+
+    try {
+      await handle.render(`export default () => { throw new Error("up"); };`);
+      record("mount-time throw rejects as GENERATED_CODE_FAULT", false, "resolved");
+    } catch (err) {
+      record(
+        "mount-time throw rejects as GENERATED_CODE_FAULT",
+        err instanceof Vivarium.RpcError && err.code === Vivarium.GENERATED_CODE_FAULT,
+        err && err.code,
+      );
+    }
+    handle.destroy();
+  } catch (err) {
+    record("harness error", false, err && err.stack || err);
+  }
+  const passed = results.filter((r) => r.ok).length;
+  window.__E2E__ = { done: true, passed, failed: results.length - passed, results };
+  document.getElementById("status").textContent = results.length === passed ? "ALL PASS (" + passed + ")" : "FAILURES";
+})();
+</script>
+</body>
+</html>

@@ -19,6 +19,29 @@ The package is browser-side and dependency-free. It ships built ESM with
 type declarations; any bundler (or an import map) that resolves bare
 specifiers will do.
 
+### Without a bundler, or from `file://`
+
+The package also ships one classic script, `dist/vivarium.iife.js`, that
+assigns the global `Vivarium` — the same exports as the package root:
+
+```html
+<script src="./vivarium.iife.js"></script>
+<script>
+  const registry = new Vivarium.CapabilityRegistry();
+  const sandbox = Vivarium.mountSandbox(document.getElementById("stage"), { registry });
+</script>
+```
+
+This is the build to use when the host page is opened straight from disk.
+A `file://` page has an opaque origin and module scripts are fetched with
+CORS, so `<script type="module">` never loads there — an import map does not
+change that. A classic script does, and the sandbox works unchanged.
+
+To copy the file next to a page you generate, resolve it through the
+package: `import.meta.resolve("@vivariumjs/runtime/vivarium.iife.js")`. CDNs
+that read the `unpkg`/`jsdelivr` fields serve it as the package's default
+file.
+
 ## 1. Grant capabilities, then mount
 
 A sandbox is created inside a container element you own. Everything the
