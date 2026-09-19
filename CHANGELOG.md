@@ -3,6 +3,34 @@
 All notable changes to `@vivariumjs/runtime` are documented here.
 Versioning: 0.x — minor for surface changes, patch for fixes.
 
+## 0.4.0 — 2026-09-19
+
+> Minor, **breaking for hosts** that pass ids to `createEditContext` or expect
+> `describeElements` to drop misses: see Changed. The edit context contract (0.1) is unchanged.
+
+### Changed
+- **Elements have two names now: an id (an address) and a reference (the element).** `listIds()` entries, `describeElements()`
+  results and `onSelectionChanged` descriptors carry `ref` — issued once per element, never reused, never re-pointed.
+- **`createEditContext()` takes references, not ids.** It follows each element to the id it carries now, and rejects with the new
+  `STALE_ELEMENT_REFERENCE` (-32003, `data.refs` lists which) when an element is gone — removed, or replaced by a later `render()` —
+  instead of describing whatever took its place. Passing an id where a reference belongs is `INVALID_PARAMS`.
+- **`describeElements()` answers once per id, in order, with `null` where nothing carries that id** — a missing id was silently
+  dropped, leaving a shorter list with no way to tell which one went missing.
+
+### Added
+- `STALE_ELEMENT_REFERENCE` error code (exported from the package root and the classic build).
+
+### Docs
+- README states the two lifetimes precisely: authored ids are durable across re-renders and re-generations, synthesized ids name a
+  position in the current render. getting-started "IDs are addresses, references are elements" · error table row · edit-context
+  contract §2 (references resolve to current ids; the context still carries ids only) and §3.4 (labels are provenance cues, not a
+  security boundary).
+
+### CI
+- **Publish workflow** is rerun-safe and its registry check is conclusive: the publish step skips a version that is
+  already live, the verification retries with `--prefer-online` (the registry's metadata cache otherwise re-serves the
+  first 404 for its five-minute lifetime) over a ~10-minute window, and an exhausted window fails with the reason.
+
 ## 0.3.0 — 2026-09-18
 
 > Published as `@vivariumjs/runtime@0.3.0`, tag `v0.3.0`.
