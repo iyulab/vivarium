@@ -3,6 +3,26 @@
 All notable changes to `@vivariumjs/runtime` are documented here.
 Versioning: 0.x — minor for surface changes, patch for fixes.
 
+## 0.5.0 — 2026-09-20
+
+> Minor, additive for hosts. The only removal is on `/internal`, which carries no compatibility promise.
+
+### Added
+- **`SandboxOptions.inlineSources: { images?, media? }`** — let generated UI display images and/or audio/video from `data:`
+  URLs and blob: URLs it builds inside the sandbox, typically from bytes a granted capability returned. Adds
+  `img-src data: blob:` / `media-src data: blob:` to the sandbox CSP. No option opens a network source, and the default
+  is unchanged: without it, no image or media source loads at all. `InlineSources` type exported.
+
+### Changed
+- `/internal`: the sandbox CSP is derived by `sandboxCsp({ modules, inlineSources })`. `SANDBOX_CSP_WITH_MODULES` is
+  removed (use `sandboxCsp({ modules: true })`); `SANDBOX_CSP` remains the default policy.
+
+### Docs
+- getting-started "Pictures and media: bytes over the bridge" — serving image bytes through a capability, building a
+  blob URL in the sandbox, and what each switch opens.
+- getting-started "Without a bundler, or from `file://`" — constraints of a host page opened from disk: data and generated
+  code arrive as classic scripts, writes stay in capability handlers, failures and permission prompts belong in host UI.
+
 ## 0.4.0 — 2026-09-19
 
 > Minor, **breaking for hosts** that pass ids to `createEditContext` or expect
