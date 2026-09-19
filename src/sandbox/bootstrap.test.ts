@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createBootstrapHtml, SANDBOX_ROOT_ID, SANDBOX_CSP, SANDBOX_CSP_WITH_MODULES } from "./bootstrap.ts";
-import { BRIDGE_PROTOCOL_VERSION, INVALID_PARAMS, INTERNAL_ERROR } from "../bridge/protocol.ts";
+import { BRIDGE_PROTOCOL_VERSION, INVALID_PARAMS, INTERNAL_ERROR, STALE_ELEMENT_REFERENCE } from "../bridge/protocol.ts";
 
 test("bootstrap html is self-contained (no external references)", () => {
   const html = createBootstrapHtml();
@@ -36,6 +36,7 @@ test("guest runtime speaks the lifecycle methods and only trusts the parent", ()
   assert.ok(html.includes("vivarium/unmount"));
   assert.ok(html.includes("vivarium/inspect.ids"));
   assert.ok(html.includes("vivarium/inspect.describe"));
+  assert.ok(html.includes("vivarium/inspect.resolve"));
   assert.ok(html.includes("vivarium/selection.set"));
   assert.ok(html.includes("vivarium/selection.changed"));
   assert.ok(html.includes("event.source !== window.parent"), "must filter message sources");
@@ -80,15 +81,17 @@ test("guest replies classify by failure type, never by a code the failure happen
 test("every guest parameter check reports a caller error, not a runtime error", () => {
   const html = createBootstrapHtml();
 
-  // The guest validates its parameters in three places; each one is a
+  // The guest validates its parameters in five places; each one is a
   // verdict about the caller's input, and reporting any of them as an
   // internal error tells the caller to go looking in the wrong place.
   for (const guard of [
     "render before initialize completed",
     "render requires { code: string }",
     "describe requires { ids: string[] }",
+    "resolve requires { refs: string[] }",
+    "not an element reference this sandbox issued: ",
   ]) {
-    assert.ok(html.includes(`invalidParams("${guard}")`), `"${guard}" must be a caller error`);
+    assert.ok(html.includes(`invalidParams("${guard}"`), `"${guard}" must be a caller error`);
   }
 
   // A fourth class sits between the two: the request was well formed and
@@ -110,6 +113,25 @@ test("every guest parameter check reports a caller error, not a runtime error", 
   // after — so it is exempt by name, and nothing else is.
   const unclassified = html.replaceAll('throw new Error("event not granted: " + name)', "");
   assert.ok(!/throw new Error\(/.test(unclassified), "no guest failure is left unclassified by omission");
+});
+
+test("element references: issued once per element, resolved or refused as stale with the refs as data", () => {
+  const html = createBootstrapHtml();
+
+  assert.ok(!html.includes("__STALE_ELEMENT_REFERENCE__"), "placeholder must be substituted");
+  // The refusal is the protocol module's code, and it carries which refs went
+  // stale as structured data — a caller must not parse the message for them.
+  assert.ok(
+    html.includes(`new RpcFailure(\n      ${STALE_ELEMENT_REFERENCE},`),
+    "stale refusal carries the protocol module's STALE_ELEMENT_REFERENCE",
+  );
+  assert.ok(html.includes("{ refs: stale }"), "stale refs travel as data");
+  assert.ok(html.includes("data: err.data"), "classified failures forward their data");
+  // One reference per element, kept weakly; a render forgets the replaced ones.
+  assert.ok(html.includes("referenceOf.get(el)") && html.includes("new WeakRef(el)"));
+  assert.ok(html.includes("root.replaceChildren();\n  forgetDetachedReferences();"));
+  // Every element handed to the host carries its reference.
+  assert.ok(html.includes("ref: referenceFor(el)"));
 });
 
 test("profile modules embed as a data: import map ahead of the runtime, widening CSP only then", () => {

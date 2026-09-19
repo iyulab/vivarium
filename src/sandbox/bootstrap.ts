@@ -18,6 +18,7 @@ import {
   INVALID_PARAMS,
   INTERNAL_ERROR,
   GENERATED_CODE_FAULT,
+  STALE_ELEMENT_REFERENCE,
 } from "../bridge/protocol.ts";
 import { createIdentityRuntime } from "../identity/stable-id.ts";
 
@@ -90,10 +91,11 @@ const eventHandlers = new Map();
  * mistaken for a classification made here.
  */
 class RpcFailure extends Error {
-  constructor(code, message) {
+  constructor(code, message, data) {
     super(message);
     this.name = "RpcFailure";
     this.code = code;
+    this.data = data;
   }
 }
 
@@ -115,7 +117,11 @@ function generatedCodeFault(what, err) {
 }
 
 function toErrorShape(err) {
-  if (err instanceof RpcFailure) return { code: err.code, message: err.message };
+  if (err instanceof RpcFailure) {
+    return err.data === undefined
+      ? { code: err.code, message: err.message }
+      : { code: err.code, message: err.message, data: err.data };
+  }
   return { code: __INTERNAL_ERROR__, message: String((err && err.message) || err) };
 }
 
@@ -213,6 +219,7 @@ handlers.set("vivarium/render", async (params) => {
   eventHandlers.clear();
   if (identityMaintainer) identityMaintainer.disconnect();
   root.replaceChildren();
+  forgetDetachedReferences();
   // Identity maintenance starts BEFORE mount runs, so elements are
   // addressable as soon as they appear — including interactions that
   // happen while mount is still in flight.
@@ -246,12 +253,49 @@ handlers.set("vivarium/render", async (params) => {
   return { ok: true };
 });
 
+/**
+ * Element references (design ADR-0005). An id is an address — the element
+ * standing at a position now — and a structural change hands the same id to
+ * a different element. A reference names one element for as long as it
+ * lives: issued once per element, never reused, never re-pointed. The host
+ * holds references for "the thing the user pointed at"; the guest resolves
+ * them to the element's current id, or refuses when the element is gone.
+ *
+ * Only weak links to elements are kept, and every inspection (and every
+ * render) first drops the entries of elements no longer on screen — a screen
+ * that keeps adding and removing rows without re-rendering must not grow the
+ * table forever. A dropped reference still resolves to "stale" rather than
+ * "unknown": the counter says it was issued.
+ */
+const referenceOf = new WeakMap();
+const elementOf = new Map();
+let referenceCount = 0;
+
+function referenceFor(el) {
+  let ref = referenceOf.get(el);
+  if (!ref) {
+    referenceCount += 1;
+    ref = "ref:" + referenceCount;
+    referenceOf.set(el, ref);
+    elementOf.set(ref, new WeakRef(el));
+  }
+  return ref;
+}
+
+function forgetDetachedReferences() {
+  for (const [ref, weak] of elementOf) {
+    const el = weak.deref();
+    if (!el || !el.isConnected) elementOf.delete(ref);
+  }
+}
+
 handlers.set("vivarium/inspect.ids", () => {
   const root = document.getElementById("__ROOT_ID__");
   if (identityMaintainer) identityMaintainer.refresh();
+  forgetDetachedReferences();
   const out = [];
   for (const el of root.querySelectorAll("[data-viv-id]")) {
-    out.push({ id: el.getAttribute("data-viv-id"), tag: el.tagName.toLowerCase() });
+    out.push({ id: el.getAttribute("data-viv-id"), tag: el.tagName.toLowerCase(), ref: referenceFor(el) });
   }
   return out;
 });
@@ -266,21 +310,50 @@ function describeElement(el) {
   const text = raw && raw.trim().length > 0
     ? (raw.length > 500 ? raw.slice(0, 500) + "…" : raw)
     : null;
-  return { id: el.getAttribute("data-viv-id"), tag: el.tagName.toLowerCase(), text, attributes };
+  return { id: el.getAttribute("data-viv-id"), ref: referenceFor(el), tag: el.tagName.toLowerCase(), text, attributes };
 }
 
 handlers.set("vivarium/inspect.describe", (params) => {
   if (!params || !Array.isArray(params.ids)) throw invalidParams("describe requires { ids: string[] }");
   const root = document.getElementById("__ROOT_ID__");
   if (identityMaintainer) identityMaintainer.refresh();
+  // An address lookup: one answer per id asked, in order, and null where
+  // nothing stands at that address now. Dropping the misses would hand back
+  // a shorter list with nothing to say which ids went missing.
+  const byId = new Map();
+  for (const el of root.querySelectorAll("[data-viv-id]")) {
+    const id = el.getAttribute("data-viv-id");
+    if (!byId.has(id)) byId.set(id, el);
+  }
+  return params.ids.map((id) => {
+    const el = byId.get(id);
+    return el ? describeElement(el) : null;
+  });
+});
+
+handlers.set("vivarium/inspect.resolve", (params) => {
+  if (!params || !Array.isArray(params.refs)) throw invalidParams("resolve requires { refs: string[] }");
+  const root = document.getElementById("__ROOT_ID__");
+  if (identityMaintainer) identityMaintainer.refresh();
+  forgetDetachedReferences();
   const out = [];
-  for (const id of params.ids) {
-    for (const el of root.querySelectorAll("[data-viv-id]")) {
-      if (el.getAttribute("data-viv-id") === id) {
-        out.push(describeElement(el));
-        break;
-      }
+  const stale = [];
+  for (const ref of params.refs) {
+    const match = typeof ref === "string" ? /^ref:([1-9][0-9]*)$/.exec(ref) : null;
+    if (!match || Number(match[1]) > referenceCount) {
+      throw invalidParams("not an element reference this sandbox issued: " + JSON.stringify(ref));
     }
+    const weak = elementOf.get(ref);
+    const el = weak && weak.deref();
+    if (el && el.isConnected && root.contains(el)) out.push(describeElement(el));
+    else stale.push(ref);
+  }
+  if (stale.length > 0) {
+    throw new RpcFailure(
+      __STALE_ELEMENT_REFERENCE__,
+      "stale element reference — the element is no longer on screen: " + stale.join(", "),
+      { refs: stale },
+    );
   }
   return out;
 });
@@ -364,6 +437,7 @@ export function createBootstrapHtml(options: BootstrapOptions = {}): string {
     .replaceAll("__INVALID_PARAMS__", String(INVALID_PARAMS))
     .replaceAll("__INTERNAL_ERROR__", String(INTERNAL_ERROR))
     .replaceAll("__GENERATED_CODE_FAULT__", String(GENERATED_CODE_FAULT))
+    .replaceAll("__STALE_ELEMENT_REFERENCE__", String(STALE_ELEMENT_REFERENCE))
     // Identity layer is injected from its real module (see the INJECTION
     // CONTRACT note in identity/stable-id.ts) instead of being duplicated.
     .replace("__IDENTITY_RUNTIME_FACTORY__", createIdentityRuntime.toString());

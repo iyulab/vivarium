@@ -47,7 +47,21 @@ export interface EditContext {
   untrusted: Record<string, UntrustedElementData>;
 }
 
-export interface ElementDescriptor extends ElementSelection, UntrustedElementData {}
+/**
+ * An element as the host sees it. Two names, two lifetimes (design ADR-0005):
+ *
+ * - `id` is an **address** — the element standing at that position now.
+ *   Authored ids (`data-viv-id` in the generated code) are the author's
+ *   durable names and survive re-renders and re-generations; synthesized ids
+ *   (`viv:…`) are positions, so a structural change can hand the same id to a
+ *   different element. The edit context speaks in ids.
+ * - `ref` is a **reference** to this one element for as long as it lives —
+ *   issued once, never reused, never re-pointed. Hold a ref to keep pointing
+ *   at what the user selected; `createEditContext` takes refs.
+ */
+export interface ElementDescriptor extends ElementSelection, UntrustedElementData {
+  ref: string;
+}
 
 export interface BuildEditContextInput {
   profile: string | null;

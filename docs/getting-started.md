@@ -162,16 +162,15 @@ mount, and arrives through `onFault` (§5).
 
 ## 3. Inspect: selections become edit contexts
 
-Every rendered element carries a stable ID (synthesized if the code didn't
-provide one), so users can point at things and agents can act on the
-pointing. Enable click-to-select and turn selections into a versioned
-[edit context](edit-context.md):
+Every rendered element is addressable, so users can point at things and
+agents can act on the pointing. Enable click-to-select and turn selections
+into a versioned [edit context](edit-context.md):
 
 ```ts
 await sandbox.setSelectionMode(true);
 
 const unsubscribe = sandbox.onSelectionChanged(async (element) => {
-  const editContext = await sandbox.createEditContext([element.id]);
+  const editContext = await sandbox.createEditContext([element.ref]);
   // Hand this to your editing agent — e.g. the input of @vivariumjs/agent.
   console.log(editContext.editContextVersion, editContext.selection);
 });
@@ -186,6 +185,41 @@ You can also enumerate and describe elements without a user selection:
 ```ts
 const ids = await sandbox.listIds();
 const described = await sandbox.describeElements(ids.map((entry) => entry.id));
+```
+
+### IDs are addresses, references are elements
+
+Every element comes with two names, and they live differently:
+
+| | `id` | `ref` |
+| --- | --- | --- |
+| What it names | Whatever stands at that address now | This one element |
+| Survives a re-render | Authored ids (`data-viv-id`): yes. Synthesized ids (`viv:…`): only while the structure is the same | No — a render replaces every element |
+| When the structure shifts | A synthesized id moves to whichever element now holds the position | Follows the element to its new id |
+| When it is gone | `describeElements` answers `null` for it | `createEditContext` rejects with `STALE_ELEMENT_REFERENCE` |
+
+Hold a **ref** for "what the user pointed at": if a list grows above the
+selected row, the ref still means that row, where the old id would now mean
+its neighbor. Use **ids** to talk about places — they are what the edit
+context carries, and what an authored `data-viv-id` makes durable.
+
+After `render()` every held ref is stale. The runtime cannot know which
+element of the new screen "is" the old one, so it says so instead of guessing:
+
+```ts
+import { STALE_ELEMENT_REFERENCE } from "@vivariumjs/runtime";
+
+async function contextFor(selectedRefs: string[]) {
+  try {
+    return await sandbox.createEditContext(selectedRefs);
+  } catch (err) {
+    if (err instanceof RpcError && err.code === STALE_ELEMENT_REFERENCE) {
+      // data.refs lists the ones that are gone: drop them, ask the user again.
+      return null;
+    }
+    throw err;
+  }
+}
 ```
 
 ## 4. Unmount and teardown
@@ -236,6 +270,7 @@ async function renderAndReport(code: string): Promise<string> {
 | --- | --- | --- | --- |
 | `-32601` | `METHOD_NOT_FOUND` | The method does not exist — e.g. invoking a capability that was never granted | Host: grant it, or stop calling it |
 | `-32602` | `INVALID_PARAMS` | The request was rejected as given — malformed params | Caller: send something else |
+| `-32003` | `STALE_ELEMENT_REFERENCE` | An element reference outlived its element — removed, or replaced by a later `render()`. `data.refs` lists which | Caller: drop those refs and select again |
 | `-32002` | `GENERATED_CODE_FAULT` | The request was fine and the runtime is fine; the supplied code would not load, does not default-export `mount(root, api)`, or threw while mounting | Whoever produced the code: regenerate it |
 | `-32001` | `ENDPOINT_CLOSED` | The handle was destroyed, or its endpoint closed | Caller: mount a new sandbox |
 | `-32603` | `INTERNAL_ERROR` | Everything else — the runtime's own failure | Report it; the message is the detail |

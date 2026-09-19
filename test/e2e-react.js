@@ -130,12 +130,15 @@ async function main() {
   await new Promise((resolve) => setTimeout(resolve, 60));
   record(
     "click-to-select surfaces the element descriptor to the host",
-    selections.length === 1 && selections[0].id === "viv:@panel/p[0]" && selections[0].tag === "p",
+    selections.length === 1 && selections[0].id === "viv:@panel/p[0]" && selections[0].tag === "p" &&
+      /^ref:\d+$/.test(selections[0].ref),
     JSON.stringify(selections),
   );
   unsubscribe();
 
-  const editContext = await handle.createEditContext(["viv:@panel/p[0]"]);
+  // The selection is held by reference (design ADR-0005) — the edit context
+  // still speaks in ids.
+  const editContext = await handle.createEditContext([selections[0].ref]);
   const structuralOnly =
     editContext.selection.length === 1 &&
     Object.keys(editContext.selection[0]).sort().join(",") === "id,tag";

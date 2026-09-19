@@ -29,7 +29,7 @@ A second, equally important problem: once generated UI is on screen, humans poin
 - **An execution sandbox.** Generated UI code runs in an isolated realm. It cannot reach the host page, host storage, or the network except through the bridge the host installs.
 - **A capability bridge.** The only channel between sandbox and host. The host decides what the generated code may do and hear: which data APIs it can call, which events it can emit, which host events it can subscribe to. Nothing is ambient.
 - **A primitive surface.** A curated set of UI building blocks (inputs, lists, layout, data views) that generated code composes. The set is versioned and enumerable, so agents can be taught exactly what exists.
-- **An identity and inspection layer.** Every rendered element carries a stable ID that survives re-renders and re-generations. Users can select elements; selections serialize into an **edit context** — a machine-readable description of "what the user is pointing at, in which screen, backed by which source" — consumable by any editing agent.
+- **An identity and inspection layer.** Every rendered element is addressable, under two names with two honest lifetimes. Its **ID** is an address: an ID the generated code authored (`data-viv-id`) is durable across re-renders and re-generations, while a synthesized one names a position in the current render. Its **reference** names that one element for as long as it lives and is never re-pointed — when the element is gone, the runtime refuses the reference instead of describing whatever took its place. Users can select elements; selections serialize into an **edit context** — a machine-readable description of "what the user is pointing at, in which screen, backed by which source" — consumable by any editing agent.
 - **A no-build path from generation to pixels.** Generated code renders without an offline compile/bundle/deploy cycle. Changes appear in seconds, not pipelines.
 
 ## What Vivarium is not
@@ -61,7 +61,8 @@ These are the anchors. An implementation that violates one of these is not Vivar
   profiles are pluggable data (embedded module import map + host-side source
   transform); the reference profile is React + TSX via Sucrase.
 - Identity: deterministic structural ids (`viv:tag[n]/…`), authored
-  `data-viv-id` preserved with descendants anchored under it.
+  `data-viv-id` preserved with descendants anchored under it; per-element
+  references (`ref:<n>`, never reused) for holding a selection.
 - Edit context: versioned public contract — see [docs/edit-context.md](https://github.com/iyulab/vivarium/blob/main/docs/edit-context.md).
 
 ### Host integration note

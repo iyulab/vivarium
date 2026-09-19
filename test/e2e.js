@@ -159,6 +159,89 @@ async function main() {
     JSON.stringify(secondIds.map((e) => e.id)),
   );
 
+  // 6.6 two lifetimes (design ADR-0005). An id is an address: a structural
+  //     change hands it to a different element. A ref names one element for
+  //     as long as it lives — the edit context follows it, and refuses once
+  //     it is gone rather than describing whatever took its place.
+  await handle.render(`
+    export default function mount(root) {
+      root.innerHTML = '<main><button>b</button><button>c</button></main>';
+      setTimeout(() => {
+        const first = document.createElement("button");
+        first.textContent = "new";
+        root.querySelector("main").prepend(first);
+      }, 30);
+    }
+  `);
+  const beforeShift = await handle.listIds();
+  const refC = (beforeShift.find((e) => e.id === "viv:main[0]/button[1]") || {}).ref;
+  const refB = (beforeShift.find((e) => e.id === "viv:main[0]/button[0]") || {}).ref;
+  record(
+    "refs: every listed element carries a distinct reference",
+    beforeShift.every((e) => /^ref:\d+$/.test(e.ref)) && new Set(beforeShift.map((e) => e.ref)).size === beforeShift.length,
+    JSON.stringify(beforeShift),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const shiftedAddress = await handle.describeElements(["viv:main[0]/button[1]", "viv:main[0]/nope[0]"]);
+  record(
+    "describe is an address lookup: the shifted id now names another element; a miss is null, in place",
+    shiftedAddress.length === 2 && shiftedAddress[0] && shiftedAddress[0].text === "b" && shiftedAddress[1] === null,
+    JSON.stringify(shiftedAddress),
+  );
+  const followed = await handle.createEditContext([refC]);
+  record(
+    "refs: the edit context follows the selected element to the id it carries now",
+    followed.selection.length === 1 && followed.selection[0].id === "viv:main[0]/button[2]" &&
+      followed.untrusted["viv:main[0]/button[2]"].text === "c",
+    JSON.stringify(followed.selection),
+  );
+  const listedAgain = await handle.listIds();
+  record(
+    "refs: re-listing reissues the same reference for the same element",
+    (listedAgain.find((e) => e.id === "viv:main[0]/button[2]") || {}).ref === refC,
+    JSON.stringify(listedAgain),
+  );
+  await handle.render(`
+    export default function mount(root) {
+      root.innerHTML = '<main><button>b</button><button>c</button></main>';
+    }
+  `);
+  const stale = await expectReject(handle.createEditContext([refB, refC]), /stale element reference/);
+  let staleData = null;
+  try { await handle.createEditContext([refC]); } catch (err) { staleData = err.data; }
+  record(
+    "refs: after a render, a held reference is refused as stale — not resolved to the look-alike",
+    stale.rejected && stale.matched && stale.code === -32003 &&
+      staleData && JSON.stringify(staleData.refs) === JSON.stringify([refC]),
+    `code=${stale.code} data=${JSON.stringify(staleData)} ${stale.message}`,
+  );
+  const fresh = await handle.listIds();
+  record(
+    "refs: references are never reused — the new screen's elements get new ones",
+    fresh.every((e) => e.ref !== refB && e.ref !== refC),
+    JSON.stringify(fresh),
+  );
+  await handle.render(`
+    export default function mount(root) {
+      root.innerHTML = '<ul><li>a</li><li>b</li></ul>';
+      setTimeout(() => root.querySelector("li:last-child").remove(), 30);
+    }
+  `);
+  const refRow = ((await handle.listIds()).find((e) => e.id === "viv:ul[0]/li[1]") || {}).ref;
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const removed = await expectReject(handle.createEditContext([refRow]), /stale element reference/);
+  record(
+    "refs: an element removed without a re-render is stale too",
+    removed.rejected && removed.matched && removed.code === -32003,
+    `code=${removed.code} ${removed.message}`,
+  );
+  const notARef = await expectReject(handle.createEditContext(["viv:main[0]/button[0]"]), /not an element reference/);
+  record(
+    "refs: an id passed where a reference belongs is a caller error",
+    notARef.rejected && notARef.matched && notARef.code === -32602,
+    `code=${notARef.code} ${notARef.message}`,
+  );
+
   // 6.8 interactive generated UI: listeners registered by generated code
   //     receive events (the bootstrap's capture-phase selection listener must
   //     not swallow them), may mutate the DOM after mount, and may invoke

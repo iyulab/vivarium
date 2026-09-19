@@ -23,6 +23,7 @@ import type { EditContext, ElementDescriptor } from "../inspect/edit-context.ts"
 export const METHOD_RENDER = "vivarium/render";
 export const METHOD_INSPECT_IDS = "vivarium/inspect.ids";
 export const METHOD_INSPECT_DESCRIBE = "vivarium/inspect.describe";
+export const METHOD_INSPECT_RESOLVE = "vivarium/inspect.resolve";
 export const METHOD_SELECTION_SET = "vivarium/selection.set";
 export const NOTIFICATION_SELECTION_CHANGED = "vivarium/selection.changed";
 export const NOTIFICATION_FAULT = "vivarium/fault";
@@ -45,8 +46,11 @@ export interface SandboxFault {
 }
 
 export interface ElementIdEntry {
+  /** Address: whatever element stands at this position now (see {@link ElementDescriptor}). */
   id: string;
   tag: string;
+  /** Reference to this element for as long as it lives (see {@link ElementDescriptor}). */
+  ref: string;
 }
 
 export const SANDBOX_ATTRIBUTE = "allow-scripts";
@@ -111,10 +115,14 @@ export interface SandboxHandle {
   render(code: string): Promise<void>;
   /** Ask the guest to unmount, collecting any state it wants persisted. */
   requestUnmount(): Promise<UnmountResult>;
-  /** Enumerate the stable ids of every element currently rendered. */
+  /** Enumerate every element currently rendered: its id, tag, and reference. */
   listIds(): Promise<ElementIdEntry[]>;
-  /** Describe elements by stable id (tag + screen-derived text/attributes). */
-  describeElements(ids: string[]): Promise<ElementDescriptor[]>;
+  /**
+   * Describe what stands at each id now (tag + screen-derived text/attributes).
+   * One answer per id, in order; `null` where no element carries that id. An
+   * id is an address, so this never fails for a missing one — it says so.
+   */
+  describeElements(ids: string[]): Promise<Array<ElementDescriptor | null>>;
   /** Toggle click-to-select inside the sandbox. */
   setSelectionMode(enabled: boolean): Promise<void>;
   /**
@@ -137,10 +145,19 @@ export interface SandboxHandle {
   onFault(listener: (fault: SandboxFault) => void): () => void;
   /**
    * Assemble the versioned edit context (public contract, fixed principle 4)
-   * for the given selected ids: structural selection + full screen id list +
-   * backing source, with screen-derived content separated as untrusted data.
+   * for the selected elements, given by **reference** (`ElementDescriptor.ref`
+   * from `onSelectionChanged`, `listIds` or `describeElements`): structural
+   * selection + full screen id list + backing source, with screen-derived
+   * content separated as untrusted data.
+   *
+   * A reference follows its element, so an element that moved since it was
+   * selected is described under the id it carries now. An element that is gone
+   * — removed, or replaced by a later `render()` — rejects the whole call with
+   * `STALE_ELEMENT_REFERENCE` (`data.refs` lists which): the runtime will not
+   * describe whatever took its place. A string this sandbox never issued as a
+   * reference (an id, say) is `INVALID_PARAMS`.
    */
-  createEditContext(selectedIds: string[]): Promise<EditContext>;
+  createEditContext(selectedRefs: string[]): Promise<EditContext>;
   /** Tear down bridge and iframe. The handle is unusable afterwards. */
   destroy(): void;
 }
@@ -227,10 +244,10 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
       await ready;
       return (await bridge.endpoint.request(METHOD_INSPECT_IDS)) as ElementIdEntry[];
     },
-    async describeElements(ids: string[]): Promise<ElementDescriptor[]> {
+    async describeElements(ids: string[]): Promise<Array<ElementDescriptor | null>> {
       if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");
       await ready;
-      return (await bridge.endpoint.request(METHOD_INSPECT_DESCRIBE, { ids })) as ElementDescriptor[];
+      return (await bridge.endpoint.request(METHOD_INSPECT_DESCRIBE, { ids })) as Array<ElementDescriptor | null>;
     },
     async setSelectionMode(enabled: boolean): Promise<void> {
       if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");
@@ -245,11 +262,11 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
       faultListeners.add(listener);
       return () => faultListeners.delete(listener);
     },
-    async createEditContext(selectedIds: string[]): Promise<EditContext> {
+    async createEditContext(selectedRefs: string[]): Promise<EditContext> {
       if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");
       await ready;
       const [descriptors, allIds] = await Promise.all([
-        bridge.endpoint.request(METHOD_INSPECT_DESCRIBE, { ids: selectedIds }) as Promise<ElementDescriptor[]>,
+        bridge.endpoint.request(METHOD_INSPECT_RESOLVE, { refs: selectedRefs }) as Promise<ElementDescriptor[]>,
         bridge.endpoint.request(METHOD_INSPECT_IDS) as Promise<ElementIdEntry[]>,
       ]);
       return buildEditContext({

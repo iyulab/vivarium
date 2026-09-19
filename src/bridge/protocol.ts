@@ -83,6 +83,19 @@ export const ENDPOINT_CLOSED = -32001;
  * was well formed and the runtime is fine; the code you supplied is not.
  */
 export const GENERATED_CODE_FAULT = -32002;
+/**
+ * An element reference no longer denotes anything on screen: the element it
+ * was issued for has been removed, or the screen was rendered again (a render
+ * replaces every element, so every reference issued before it goes stale).
+ *
+ * A reference names one element for as long as that element lives; it is
+ * never re-pointed at another one. That is what separates it from an id,
+ * which is an address — "the second button in main" — and happily names
+ * whatever stands there now. When the element is gone the honest answer is
+ * this refusal, not the element that took its place; `data.refs` lists the
+ * stale references so the caller can drop them and ask the user again.
+ */
+export const STALE_ELEMENT_REFERENCE = -32003;
 
 export class RpcError extends Error {
   code: number;

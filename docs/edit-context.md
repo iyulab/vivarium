@@ -32,7 +32,8 @@ it is not an internal format of either side.
 }
 ```
 
-- `selection[].id` is a stable element id (see the identity layer):
+- `selection[].id` is the element's id at the time the context was built
+  (see the identity layer):
   synthesized ids are structural (`viv:tag[n]/…`), authored ids are
   preserved verbatim, descendants of authored ids anchor under them
   (`viv:@anchor/…`).
@@ -45,9 +46,13 @@ it is not an internal format of either side.
 
 ## 2. Producer/consumer roles
 
-- Producer: `SandboxHandle.createEditContext(selectedIds)`. Selections can
+- Producer: `SandboxHandle.createEditContext(selectedRefs)`. Selections can
   originate from host UI or from click-to-select inside the sandbox
-  (`setSelectionMode(true)` + `onSelectionChanged(listener)`).
+  (`setSelectionMode(true)` + `onSelectionChanged(listener)`). They are
+  passed as element **references**, which the producer resolves to each
+  element's *current* id; a reference whose element is gone is refused, never
+  resolved to another element. The context itself carries ids only — a
+  reference is between the host and the sandbox, not part of this contract.
 - Consumers MUST ignore fields they do not recognize and MUST reject a
   context whose `editContextVersion` major/minor they do not support.
 
@@ -73,6 +78,12 @@ consumer afterthought:
    element names; synthesized ids match `viv:[a-z0-9\[\]/@.-]+`. Authored
    ids are author-controlled strings and MUST be handled as data when
    echoed into prose.
+4. Labels and fences are provenance cues, not a security boundary. A
+   model can still be swayed by text it was told is data, so marking is
+   necessary but never sufficient: whatever the agent does with a context
+   stays within the authority its host already grants, and nothing on the
+   screen can widen it (in the Vivarium family, an editing agent produces a
+   proposal and holds no write access at all).
 
 ## 4. Versioning
 
