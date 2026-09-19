@@ -42,6 +42,39 @@ package: `import.meta.resolve("@vivariumjs/runtime/vivarium.iife.js")`. CDNs
 that read the `unpkg`/`jsdelivr` fields serve it as the package's default
 file.
 
+A page opened from disk has a few more constraints than a served page:
+
+- **Data arrives as scripts, in order.** `fetch` cannot read a sibling file
+  from a `file://` page, but a classic `<script src>` can: data written as
+  `window.APP_DATA = {…}` is loaded that way. Plain classic scripts run in
+  document order, so list the data scripts before the one that mounts. If
+  you insert scripts dynamically (an optional file, say), await each
+  `load` event, or its `error` event if the file may be missing, before you
+  call `render`. The capability handlers then serve the data from the global.
+- **Generated code arrives as a script too.** `render` takes source text,
+  and a `file://` page cannot fetch that either. Ship the generated module
+  inside a classic script, as a string (`window.APP_SOURCE = "export default
+  …"`) or as a self-contained function whose source you render:
+  `render("export default " + window.APP_MOUNT.toString())`. The function
+  runs in the sandbox, not in the page. It must use nothing it closes over,
+  and nothing but its `root` and `api` arguments.
+- **Writes stay in the host.** If the page saves back to disk (File System
+  Access), keep the directory handle and every write in capability
+  handlers. The generated code only asks, for example `api.invoke("notes.save", …)`,
+  and never sees a handle. Before accepting a folder the user picked, check
+  that it holds the files the page came from. `entries()` on a directory
+  handle is an async iterator, so walk it with `for await`.
+- **Show failures in the host's own UI.** Subscribe to `onFault` before the
+  first `render`, and catch a rejected `render`. A page opened from disk has
+  no one watching its console, so both should reach a banner the user can
+  read (§5).
+- **Ask for permissions from the host's own UI.** A click inside the
+  sandbox does count as user activation for the host page. HTML
+  propagates activation to ancestor frames, so a picker opened from a
+  capability handler that the click triggered is allowed. Still, prefer a
+  button in the host's own UI for prompts like a folder picker. The user
+  then knows it is the page asking, not the generated code.
+
 ## 1. Grant capabilities, then mount
 
 A sandbox is created inside a container element you own. Everything the
