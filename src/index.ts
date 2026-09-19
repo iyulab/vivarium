@@ -33,6 +33,7 @@ export type {
   ElementIdEntry,
   SandboxFault,
 } from "./sandbox/host.ts";
+export type { InlineSources } from "./sandbox/bootstrap.ts";
 
 export { CapabilityRegistry } from "./bridge/capabilities.ts";
 export type { CapabilityDescriptor, CapabilityGrant, EventDescriptor } from "./bridge/capabilities.ts";

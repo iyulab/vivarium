@@ -160,6 +160,50 @@ subscribed to reaches nobody. A new `render()` ends the previous module's
 subscriptions. A handler that throws is the generated code failing after
 mount, and arrives through `onFault` (§5).
 
+### Pictures and media: bytes over the bridge
+
+By default the sandbox loads no image and no audio or video at all — not
+even a `data:` URL. The CSP that closes the network sets no `img-src` and
+no `media-src`. When your data has pictures, opt in with `inlineSources`
+and serve the bytes through a capability. The generated code turns them
+into a URL that exists only inside the sandbox:
+
+```ts
+const photoRegistry = new CapabilityRegistry();
+photoRegistry.grant(
+  { name: "photo.bytes", description: "One photo's bytes, by id." },
+  async (params) => {
+    const { id } = params as { id: string };
+    return { type: "image/jpeg", base64: await loadPhotoBase64(id) };
+  },
+);
+
+const album = mountSandbox(document.getElementById("album")!, {
+  registry: photoRegistry,
+  inlineSources: { images: true },
+});
+await album.render(`
+  export default async function mount(root, api) {
+    const photo = await api.invoke("photo.bytes", { id: "p1" });
+    const bytes = Uint8Array.from(atob(photo.base64), (c) => c.charCodeAt(0));
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(new Blob([bytes], { type: photo.type }));
+    root.append(img);
+  }
+`);
+
+declare function loadPhotoBase64(id: string): Promise<string>;
+```
+
+`inlineSources.images` adds `img-src data: blob:`, and `inlineSources.media`
+adds `media-src data: blob:` for `<audio>` and `<video>`. These are the only
+sources either switch opens. A `data:` URL, or a blob URL the sandbox made
+itself, reaches nothing outside the frame, so the bridge stays the only way
+bytes get in. An `https:` image is still refused whatever you pass, and no
+option takes a source list, so no configuration can open one. For long
+media you may still prefer playing it in the host and pushing its position
+in with an event, as above.
+
 ## 3. Inspect: selections become edit contexts
 
 Every rendered element is addressable, so users can point at things and

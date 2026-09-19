@@ -17,6 +17,7 @@ import { createHostBridge } from "../bridge/lifecycle.ts";
 import type { HostBridge, UnmountResult } from "../bridge/lifecycle.ts";
 import type { CapabilityRegistry } from "../bridge/capabilities.ts";
 import { createBootstrapHtml } from "./bootstrap.ts";
+import type { InlineSources } from "./bootstrap.ts";
 import { buildEditContext } from "../inspect/edit-context.ts";
 import type { EditContext, ElementDescriptor } from "../inspect/edit-context.ts";
 
@@ -95,6 +96,13 @@ export interface SandboxOptions {
   context?: unknown;
   /** Execution profile for generated code. Omitted: plain-JS modules only. */
   profile?: SandboxProfile;
+  /**
+   * Let the generated UI display images and/or audio/video from `data:` and
+   * blob: URLs it builds itself — typically from bytes a granted capability
+   * returned. Only in-sandbox sources: the network stays closed. Omitted:
+   * no image or media source loads at all.
+   */
+  inlineSources?: InlineSources;
   /** Timeout for host→guest requests (render, unmount). Default 10s. */
   requestTimeoutMs?: number;
 }
@@ -174,7 +182,7 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
   const iframe = doc.createElement("iframe") as SandboxIframeElement;
   // Fail-closed: allow-scripts only. Everything else stays denied.
   iframe.setAttribute("sandbox", SANDBOX_ATTRIBUTE);
-  iframe.setAttribute("srcdoc", createBootstrapHtml({ modules: options.profile?.modules }));
+  iframe.setAttribute("srcdoc", createBootstrapHtml({ modules: options.profile?.modules, inlineSources: options.inlineSources }));
   container.appendChild(iframe);
 
   const transport = createPostMessageTransport(

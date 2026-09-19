@@ -30,14 +30,43 @@ export const SANDBOX_ROOT_ID = "vivarium-root";
  * (connect/img/font/media/frame all collapse to none); scripts are limited
  * to the inline bootstrap and blob:-imported generated modules; inline
  * styles are allowed because generated UI legitimately styles itself.
- * `data:` is added to script-src only when a profile embeds modules
- * (ADR-0004 — fail-closed: no allowance before there is a need).
+ * This is the policy when nothing is opted in; {@link sandboxCsp} derives
+ * every other one (ADR-0004 — fail-closed: no allowance before there is a need).
  */
 export const SANDBOX_CSP =
   "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'";
 
-export const SANDBOX_CSP_WITH_MODULES =
-  "default-src 'none'; script-src 'unsafe-inline' blob: data:; style-src 'unsafe-inline'";
+/**
+ * Sources a host may let the generated UI display: bytes that already live
+ * inside the sandbox — `data:` URLs and blob: URLs the guest made itself.
+ * Neither can reach anything outside the opaque-origin frame, so opting in
+ * keeps the bridge the only way bytes get in. There is no scheme list on
+ * purpose: nothing here can open `http:`, `https:` or `file:`.
+ */
+export interface InlineSources {
+  /** `img-src data: blob:` — `<img>`, `<picture>`, CSS images, `<canvas>` sources. */
+  images?: boolean;
+  /** `media-src data: blob:` — `<audio>`, `<video>`, `<track>`. */
+  media?: boolean;
+}
+
+export interface SandboxCspOptions {
+  /** A profile embeds modules as data: URLs, so script-src must accept data:. */
+  modules?: boolean;
+  inlineSources?: InlineSources;
+}
+
+/** Derive the sandbox document CSP. Each allowance appears only when asked for. */
+export function sandboxCsp(options: SandboxCspOptions = {}): string {
+  const directives = [
+    "default-src 'none'",
+    options.modules ? "script-src 'unsafe-inline' blob: data:" : "script-src 'unsafe-inline' blob:",
+    "style-src 'unsafe-inline'",
+  ];
+  if (options.inlineSources?.images) directives.push("img-src data: blob:");
+  if (options.inlineSources?.media) directives.push("media-src data: blob:");
+  return directives.join("; ");
+}
 
 /** Node's Buffer, when present — this package compiles against DOM types only. */
 declare const Buffer:
@@ -422,6 +451,8 @@ post({ jsonrpc: "2.0", method: "vivarium/initialized" });
 export interface BootstrapOptions {
   /** Profile modules to embed: bare specifier → ES module source (ADR-0004). */
   modules?: Record<string, string>;
+  /** In-sandbox sources the generated UI may display (see {@link InlineSources}). */
+  inlineSources?: InlineSources;
 }
 
 /**
@@ -443,7 +474,7 @@ export function createBootstrapHtml(options: BootstrapOptions = {}): string {
     .replace("__IDENTITY_RUNTIME_FACTORY__", createIdentityRuntime.toString());
   const modules = options.modules ?? {};
   const hasModules = Object.keys(modules).length > 0;
-  const csp = hasModules ? SANDBOX_CSP_WITH_MODULES : SANDBOX_CSP;
+  const csp = sandboxCsp({ modules: hasModules, inlineSources: options.inlineSources });
   return [
     "<!doctype html>",
     "<html><head>",
@@ -452,7 +483,7 @@ export function createBootstrapHtml(options: BootstrapOptions = {}): string {
     // network egress; this document CSP does (README: the bridge is the only
     // channel). Fail-closed: only the inline bootstrap, blob-imported
     // generated modules, and embedded profile modules may run; no fetch/XHR,
-    // no external resources.
+    // no external resources — at most in-sandbox images and media when opted in.
     `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
     "<style>html,body{margin:0;height:100%}</style>",
     // The import map must precede the first module script to take effect.

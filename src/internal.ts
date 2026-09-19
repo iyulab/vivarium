@@ -83,9 +83,9 @@ export {
   createBootstrapHtml,
   SANDBOX_ROOT_ID,
   SANDBOX_CSP,
-  SANDBOX_CSP_WITH_MODULES,
+  sandboxCsp,
 } from "./sandbox/bootstrap.ts";
-export type { BootstrapOptions } from "./sandbox/bootstrap.ts";
+export type { BootstrapOptions, SandboxCspOptions } from "./sandbox/bootstrap.ts";
 
 export {
   METHOD_RENDER,

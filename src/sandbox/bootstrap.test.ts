@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createBootstrapHtml, SANDBOX_ROOT_ID, SANDBOX_CSP, SANDBOX_CSP_WITH_MODULES } from "./bootstrap.ts";
+import { createBootstrapHtml, sandboxCsp, SANDBOX_ROOT_ID, SANDBOX_CSP } from "./bootstrap.ts";
 import { BRIDGE_PROTOCOL_VERSION, INVALID_PARAMS, INTERNAL_ERROR, STALE_ELEMENT_REFERENCE } from "../bridge/protocol.ts";
 
 test("bootstrap html is self-contained (no external references)", () => {
@@ -138,7 +138,8 @@ test("profile modules embed as a data: import map ahead of the runtime, widening
   const source = 'export const greet = (name) => "안녕, " + name;';
   const html = createBootstrapHtml({ modules: { "demo-lib": source } });
 
-  assert.ok(html.includes(SANDBOX_CSP_WITH_MODULES), "CSP gains data: only with modules");
+  assert.ok(html.includes(sandboxCsp({ modules: true })), "CSP gains data: only with modules");
+  assert.ok(sandboxCsp({ modules: true }).includes("script-src 'unsafe-inline' blob: data:"));
   assert.ok(html.includes('<script type="importmap">'));
   const importMapIndex = html.indexOf('type="importmap"');
   const moduleIndex = html.indexOf('type="module"');
@@ -160,6 +161,39 @@ test("without profile modules there is no import map and no data: allowance", ()
   assert.ok(!html.includes("importmap"));
   assert.ok(html.includes(SANDBOX_CSP));
   assert.ok(!html.includes("script-src 'unsafe-inline' blob: data:"));
+});
+
+test("the CSP with nothing opted in is the fail-closed default, with no image or media source", () => {
+  assert.equal(sandboxCsp(), SANDBOX_CSP);
+  assert.equal(sandboxCsp({ inlineSources: {} }), SANDBOX_CSP);
+  assert.ok(!SANDBOX_CSP.includes("img-src") && !SANDBOX_CSP.includes("media-src"));
+});
+
+test("inline sources widen img-src and media-src to data: and blob: only, each on its own switch", () => {
+  const images = createBootstrapHtml({ inlineSources: { images: true } });
+  assert.ok(images.includes("img-src data: blob:"));
+  assert.ok(!images.includes("media-src"), "images do not imply audio/video");
+
+  const media = createBootstrapHtml({ inlineSources: { media: true } });
+  assert.ok(media.includes("media-src data: blob:"));
+  assert.ok(!media.includes("img-src"), "audio/video do not imply images");
+
+  const both = sandboxCsp({ inlineSources: { images: true, media: true } });
+  assert.ok(both.startsWith("default-src 'none'"), "the network stays closed");
+  assert.ok(both.includes("script-src 'unsafe-inline' blob:;"), "script sources are untouched");
+});
+
+test("no combination of options lets the CSP name a scheme that reaches outside the sandbox", () => {
+  for (const modules of [false, true]) {
+    for (const images of [false, true]) {
+      for (const media of [false, true]) {
+        const csp = sandboxCsp({ modules, inlineSources: { images, media } });
+        assert.ok(csp.startsWith("default-src 'none';"), csp);
+        assert.ok(!/\b(https?|file|wss?):/.test(csp), csp);
+        assert.ok(!/(^|\s)\*/.test(csp) && !csp.includes("'self'"), csp);
+      }
+    }
+  }
 });
 
 test("identity runtime is injected as one self-contained factory", () => {

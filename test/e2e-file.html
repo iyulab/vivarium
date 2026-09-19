@@ -68,6 +68,70 @@
       );
     }
     handle.destroy();
+
+    // Inline sources: a picture the guest builds from bytes it holds loads
+    // only when the host opts in, and a network image stays blocked either way.
+    const probeSources = async (inlineSources) => {
+      const reg = new Vivarium.CapabilityRegistry();
+      let report = null;
+      reg.grant({ name: "report", description: "probe result" }, (r) => { report = r; return true; });
+      const h = Vivarium.mountSandbox(document.getElementById("stage"), { registry: reg, inlineSources });
+      await h.whenReady();
+      await h.render(`
+        const GIF = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+        const WAV = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+        const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const image = (src) => new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve("loaded");
+          img.onerror = () => resolve("blocked");
+          img.src = src;
+          setTimeout(() => resolve("timeout"), 3000);
+        });
+        export default async function mount(root, api) {
+          const violations = [];
+          document.addEventListener("securitypolicyviolation", (e) => {
+            violations.push(e.effectiveDirective + " " + e.blockedURI.split(":")[0]);
+          });
+          const blobUrl = URL.createObjectURL(new Blob([bytes(GIF)], { type: "image/gif" }));
+          const result = {
+            data: await image("data:image/gif;base64," + GIF),
+            blob: await image(blobUrl),
+            https: await image("https://example.com/pixel.gif"),
+          };
+          const audio = document.createElement("audio");
+          audio.src = "data:audio/wav;base64," + WAV;
+          root.append(audio);
+          await new Promise((r) => setTimeout(r, 200));
+          result.violations = violations.sort();
+          await api.invoke("report", result);
+        }
+      `);
+      h.destroy();
+      return report;
+    };
+
+    const closed = await probeSources(undefined);
+    record(
+      "without inlineSources no image or media source loads",
+      closed.data === "blocked" && closed.blob === "blocked" && closed.https === "blocked" &&
+        closed.violations.includes("img-src data") && closed.violations.includes("media-src data"),
+      JSON.stringify(closed),
+    );
+    const images = await probeSources({ images: true });
+    record(
+      "inlineSources.images loads data: and blob: images, not network ones, and leaves media closed",
+      images.data === "loaded" && images.blob === "loaded" && images.https === "blocked" &&
+        images.violations.includes("img-src https") && images.violations.includes("media-src data") &&
+        !images.violations.includes("img-src data") && !images.violations.includes("img-src blob"),
+      JSON.stringify(images),
+    );
+    const media = await probeSources({ images: true, media: true });
+    record(
+      "inlineSources.media admits data: audio",
+      !media.violations.some((v) => v.startsWith("media-src")) && media.violations.includes("img-src https"),
+      JSON.stringify(media),
+    );
   } catch (err) {
     record("harness error", false, err && err.stack || err);
   }

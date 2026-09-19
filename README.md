@@ -53,7 +53,9 @@ These are the anchors. An implementation that violates one of these is not Vivar
 
 - Isolation: a sandboxed iframe (opaque origin, `allow-scripts` only) with a
   `default-src 'none'` document CSP — network egress is closed; the bridge is
-  the only channel.
+  the only channel. A host may let generated UI display images or media from
+  `data:`/blob: URLs it builds inside the sandbox (`inlineSources`); no option
+  opens a network source.
 - Bridge: JSON-RPC 2.0 over postMessage; capabilities surface as enumerable
   `cap:<name>` methods granted by the host, and host events travel the other
   way as `evt:<name>` notifications — granted by name, subscribed to by name.
