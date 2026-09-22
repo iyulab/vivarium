@@ -19,10 +19,11 @@ import type { CapabilityRegistry } from "../bridge/capabilities.ts";
 import { createBootstrapHtml } from "./bootstrap.ts";
 import type { InlineSources } from "./bootstrap.ts";
 import { buildEditContext } from "../inspect/edit-context.ts";
-import type { EditContext, ElementDescriptor } from "../inspect/edit-context.ts";
+import type { EditContext, ElementDescriptor, ScreenElement } from "../inspect/edit-context.ts";
 
 export const METHOD_RENDER = "vivarium/render";
 export const METHOD_INSPECT_IDS = "vivarium/inspect.ids";
+export const METHOD_INSPECT_CONTEXT = "vivarium/inspect.context";
 export const METHOD_INSPECT_DESCRIBE = "vivarium/inspect.describe";
 export const METHOD_INSPECT_RESOLVE = "vivarium/inspect.resolve";
 export const METHOD_SELECTION_SET = "vivarium/selection.set";
@@ -273,14 +274,19 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
     async createEditContext(selectedRefs: string[]): Promise<EditContext> {
       if (destroyed) throw new RpcError(ENDPOINT_CLOSED, "sandbox is destroyed");
       await ready;
-      const [descriptors, allIds] = await Promise.all([
-        bridge.endpoint.request(METHOD_INSPECT_RESOLVE, { refs: selectedRefs }) as Promise<ElementDescriptor[]>,
-        bridge.endpoint.request(METHOD_INSPECT_IDS) as Promise<ElementIdEntry[]>,
-      ]);
+      // One request, not two. The selection and the neighbourhood have to describe
+      // the same DOM; asking separately leaves room for a render in between, and
+      // then the surroundings belong to a screen the selection no longer lives in.
+      const answer = (await bridge.endpoint.request(METHOD_INSPECT_CONTEXT, { refs: selectedRefs })) as {
+        selection: ElementDescriptor[];
+        screen: ScreenElement[];
+        names: Record<string, string | null>;
+      };
       return buildEditContext({
         profile: options.profile?.name ?? null,
-        selection: descriptors,
-        screenElementIds: allIds.map((entry) => entry.id),
+        selection: answer.selection,
+        screen: answer.screen,
+        screenNames: answer.names,
         source: lastSource,
       });
     },

@@ -329,6 +329,129 @@ handlers.set("vivarium/inspect.ids", () => {
   return out;
 });
 
+/**
+ * ARIA role: explicit when the author set one, otherwise the implicit role the
+ * element carries by virtue of being that element.
+ *
+ * The implicit table is deliberately short. It covers the elements a generated
+ * screen is built from, and answers null rather than guessing for anything else —
+ * a wrong role is worse than no role, because a consumer acts on it.
+ */
+const IMPLICIT_ROLE = {
+  a: "link", button: "button", h1: "heading", h2: "heading", h3: "heading",
+  h4: "heading", h5: "heading", h6: "heading", img: "img", input: "textbox",
+  li: "listitem", nav: "navigation", ol: "list", option: "option", p: "paragraph",
+  progress: "progressbar", section: "region", select: "combobox", table: "table",
+  tbody: "rowgroup", td: "cell", textarea: "textbox", th: "columnheader",
+  thead: "rowgroup", tr: "row", ul: "list",
+};
+
+function roleOf(el) {
+  const explicit = el.getAttribute("role");
+  if (explicit && explicit.trim().length > 0) return explicit.trim();
+  const tag = el.tagName.toLowerCase();
+  // An <a> without href is not a link, and an <input type=checkbox> is not a textbox.
+  if (tag === "a") return el.hasAttribute("href") ? "link" : null;
+  if (tag === "input") {
+    const type = (el.getAttribute("type") || "text").toLowerCase();
+    if (type === "checkbox") return "checkbox";
+    if (type === "radio") return "radio";
+    if (type === "button" || type === "submit" || type === "reset") return "button";
+    return type === "hidden" ? null : "textbox";
+  }
+  return IMPLICIT_ROLE[tag] ?? null;
+}
+
+/**
+ * Accessible name, the cheap and honest way: an explicit label if the author gave
+ * one, otherwise the element's own short text. Not a full accname computation —
+ * this deliberately stops where it would start guessing.
+ */
+function accessibleName(el) {
+  const label = el.getAttribute("aria-label");
+  if (label && label.trim().length > 0) return label.trim().slice(0, 100);
+  const alt = el.getAttribute("alt");
+  if (alt && alt.trim().length > 0) return alt.trim().slice(0, 100);
+  const raw = el.textContent;
+  if (!raw) return null;
+  const text = raw.replace(/\s+/g, " ").trim();
+  return text.length > 0 ? text.slice(0, 100) : null;
+}
+
+/**
+ * The neighbourhood of a selection: the elements a consumer reasons about when it
+ * reasons about the edit. Ancestors say where the selection sits, siblings what it
+ * sits among, children what it contains. Everything else on the screen is the rest
+ * of the screen, and carrying it made the context grow with the row count.
+ */
+function neighbourhoodOf(root, selected) {
+  const relation = new Map(); // element → relation, first (strongest) wins
+  const mark = (el, rel) => {
+    if (!el || el === root || !root.contains(el)) return;
+    if (!el.hasAttribute || !el.hasAttribute("data-viv-id")) return;
+    if (!relation.has(el)) relation.set(el, rel);
+  };
+  for (const el of selected) mark(el, "selected");
+  for (const el of selected) {
+    for (let p = el.parentElement; p && p !== root; p = p.parentElement) mark(p, "ancestor");
+    const parent = el.parentElement;
+    if (parent) for (const sib of parent.children) if (sib !== el) mark(sib, "sibling");
+    for (const child of el.children) mark(child, "child");
+  }
+  // Document order, so a consumer reads the neighbourhood the way the screen reads.
+  const out = [];
+  for (const el of root.querySelectorAll("[data-viv-id]")) {
+    const rel = relation.get(el);
+    if (rel) out.push({ id: el.getAttribute("data-viv-id"), tag: el.tagName.toLowerCase(), relation: rel, role: roleOf(el) });
+  }
+  return out;
+}
+
+/**
+ * Everything createEditContext needs, in one round trip: the selection resolved
+ * from refs, and the neighbourhood around it. One call because the two answers
+ * must describe the same DOM — asking twice invites a render in between, and then
+ * the neighbourhood belongs to a screen the selection no longer lives in.
+ */
+handlers.set("vivarium/inspect.context", (params) => {
+  if (!params || !Array.isArray(params.refs)) throw invalidParams("context requires { refs: string[] }");
+  const root = document.getElementById("__ROOT_ID__");
+  if (identityMaintainer) identityMaintainer.refresh();
+  forgetDetachedReferences();
+  const selected = [];
+  const stale = [];
+  for (const ref of params.refs) {
+    const match = typeof ref === "string" ? /^ref:([1-9][0-9]*)$/.exec(ref) : null;
+    if (!match || Number(match[1]) > referenceCount) {
+      throw invalidParams("not an element reference this sandbox issued: " + JSON.stringify(ref));
+    }
+    const weak = elementOf.get(ref);
+    const el = weak && weak.deref();
+    if (el && el.isConnected && root.contains(el)) selected.push(el);
+    else stale.push(ref);
+  }
+  // Same refusal as resolve, for the same reason: a reference whose element is gone
+  // is never quietly re-pointed at another one, and never quietly dropped.
+  if (stale.length > 0) {
+    throw new RpcFailure(
+      __STALE_ELEMENT_REFERENCE__,
+      "stale element reference — the element is no longer on screen: " + stale.join(", "),
+      { refs: stale },
+    );
+  }
+  const screen = neighbourhoodOf(root, selected);
+  const names = {};
+  for (const entry of screen) {
+    const el = root.querySelector('[data-viv-id="' + CSS.escape(entry.id) + '"]');
+    if (el) names[entry.id] = accessibleName(el);
+  }
+  return {
+    selection: selected.map(describeElement),
+    screen,
+    names,
+  };
+});
+
 function describeElement(el) {
   const attributes = {};
   for (const attr of el.attributes) {
@@ -339,7 +462,10 @@ function describeElement(el) {
   const text = raw && raw.trim().length > 0
     ? (raw.length > 500 ? raw.slice(0, 500) + "…" : raw)
     : null;
-  return { id: el.getAttribute("data-viv-id"), ref: referenceFor(el), tag: el.tagName.toLowerCase(), text, attributes };
+  return {
+    id: el.getAttribute("data-viv-id"), ref: referenceFor(el), tag: el.tagName.toLowerCase(),
+    text, attributes, name: accessibleName(el),
+  };
 }
 
 handlers.set("vivarium/inspect.describe", (params) => {

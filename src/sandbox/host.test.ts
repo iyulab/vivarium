@@ -219,3 +219,50 @@ test("emit waits for the handshake, then sends a granted event as an evt: notifi
   handle.destroy();
   await assert.rejects(handle.emit("files.arrived"), (err: unknown) => err instanceof RpcError && err.code === ENDPOINT_CLOSED);
 });
+
+test("createEditContext asks the guest once, and passes its answer through unchanged", async () => {
+  const dom = makeFakeDom();
+  const handle = mountSandbox(dom.container, { registry: new CapabilityRegistry() });
+  dom.emit({ jsonrpc: "2.0", id: 1, method: "vivarium/initialize", params: { protocolVersion: "0.1" } });
+  dom.emit({ jsonrpc: "2.0", method: "vivarium/initialized" });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  const pending = handle.createEditContext(["ref:7"]);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  // One request, not two. The selection and its surroundings have to describe the
+  // same DOM — asking separately leaves room for a render in between, and the
+  // context would then pair a selection with a screen it no longer lives in.
+  const inspectCalls = dom.sent.filter((m) =>
+    String((m as { method?: string }).method ?? "").startsWith("vivarium/inspect."),
+  ) as Array<{ id: number; method: string; params: { refs: string[] } }>;
+  assert.equal(inspectCalls.length, 1);
+  assert.equal(inspectCalls[0].method, "vivarium/inspect.context");
+  assert.deepEqual(inspectCalls[0].params.refs, ["ref:7"]);
+
+  dom.emit({
+    jsonrpc: "2.0",
+    id: inspectCalls[0].id,
+    result: {
+      selection: [{ id: "b", ref: "ref:7", tag: "button", text: "Save", attributes: {}, name: "Save" }],
+      screen: [
+        { id: "form", tag: "form", relation: "ancestor", role: null },
+        { id: "b", tag: "button", relation: "selected", role: "button" },
+      ],
+      names: { form: "Edit profile", b: "Save" },
+    },
+  });
+
+  const ctx = await pending;
+  assert.equal(ctx.editContextVersion, "0.2");
+  assert.deepEqual(ctx.screen.elements.map((e) => [e.id, e.relation, e.role]), [
+    ["form", "ancestor", null],
+    ["b", "selected", "button"],
+  ]);
+  // A neighbour's name is screen-derived, so it lands under `untrusted` with the
+  // rest of the screen's words rather than beside the structure.
+  assert.deepEqual(ctx.untrusted.form, { text: null, attributes: {}, name: "Edit profile" });
+  assert.equal(ctx.untrusted.b.name, "Save");
+  assert.equal(ctx.untrusted.b.text, "Save");
+  handle.destroy();
+});
