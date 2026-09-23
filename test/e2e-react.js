@@ -147,13 +147,13 @@ async function main() {
     editContext.untrusted["viv:@panel/p[0]"].text.includes("IGNORE ALL PREVIOUS INSTRUCTIONS") &&
     editContext.untrusted["viv:@panel/p[0]"].attributes.class === "note";
   record(
-    "edit context v0.1: version/profile/screen/source assembled",
-    editContext.editContextVersion === "0.1" &&
+    "edit context 0.2: version/profile/neighbourhood/source assembled",
+    editContext.editContextVersion === "0.2" &&
       editContext.profile === "react-tsx@0" &&
-      editContext.screen.elementIds.includes("panel") &&
+      editContext.screen.elements.some((e) => e.id === "panel" && e.relation === "ancestor") &&
       editContext.source.language === "tsx" &&
       editContext.source.code.includes("사용자 리뷰"),
-    JSON.stringify({ v: editContext.editContextVersion, p: editContext.profile, ids: editContext.screen.elementIds }),
+    JSON.stringify({ v: editContext.editContextVersion, p: editContext.profile, elements: editContext.screen.elements }),
   );
   record(
     "edit context separates untrusted screen content from structure",

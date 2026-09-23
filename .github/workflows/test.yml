@@ -21,9 +21,27 @@ jobs:
         with:
           node-version: "24"
       - run: npm ci
-      # Unit tests only — the real-browser e2e harnesses (test/e2e*.html)
-      # need a served browser session and stay a local/dev concern for now.
       - run: npm test
+
+  # The behaviour only a real browser can show — the sandbox's opaque origin,
+  # the document CSP, identity across live re-renders, bridge error codes, the
+  # classic build on file:// — lives in test/e2e*.html. Each page judges itself;
+  # tools/run-e2e.ts opens them and fails the job on any failed assertion.
+  # It drives the Chrome the runner already has (ubuntu-latest ships one) and
+  # downloads nothing; if an image ever drops it, this fails loudly rather than
+  # skipping the only check that looks at a browser.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+      # e2e-file.html loads dist/vivarium.iife.js; e2e-react.html loads test/assets.
+      - run: npm run build
+      - run: node tools/build-profile-assets.ts
+      - run: npm run test:e2e
 
   # Consumer-contact smoke (Phase 5.a): a fresh consumer package installs this
   # repo and imports the public surface — catches breakage that only shows up

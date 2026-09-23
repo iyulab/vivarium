@@ -490,15 +490,23 @@ error codes a rejection carries back across the bridge — lives in harnesses
 you serve and open:
 
 ```
+npm run build && node tools/build-profile-assets.ts   # once: the classic build and profile assets
+npm run test:e2e                                       # opens every harness in a real browser
+```
+
+`test:e2e` drives the Chrome, Edge, or Chromium already installed (it downloads
+none) and exits non-zero on any failed assertion; CI runs it on every push.
+To watch one page instead, serve the repository and open it:
+
+```
 node tools/dev-server.ts 8787          # strips types so the browser can import src/*.ts
 # then open http://localhost:8787/test/e2e.html          (sandbox core)
 #      and  http://localhost:8787/test/e2e-react.html    (react-tsx profile)
+# test/e2e-file.html is opened straight from disk (file://), no server
 ```
 
 Each page reports pass/fail per assertion and leaves the same results on
-`window.__E2E__` for a driver to read, so the harnesses can be run by hand or
-from an automation script. They are not part of CI, which is why the pages
-report rather than exit — a green CI run is not a claim that these passed.
+`window.__E2E__`, which is what the runner reads.
 
 ## Where to go next
 

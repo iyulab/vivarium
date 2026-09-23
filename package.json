@@ -39,10 +39,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node tools/build-iife.ts",
     "prepack": "npm run build",
-    "test": "node --test \"src/**/*.test.ts\""
+    "test": "node --test \"src/**/*.test.ts\"",
+    "test:e2e": "node tools/run-e2e.ts"
   },
   "devDependencies": {
     "esbuild": "^0.28.1",
+    "playwright-core": "^1.63.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "sucrase": "^3.35.1",
