@@ -3,6 +3,25 @@
 All notable changes to `@vivariumjs/runtime` are documented here.
 Versioning: 0.x — minor for surface changes, patch for fixes.
 
+## 0.6.0 — 2026-09-23
+
+### Changed
+- **Edit context 0.2 — `screen` carries the selection's neighbourhood, not the whole screen.**
+  `screen.elementIds` (every addressable element, in document order) is replaced by
+  `screen.elements`: the selected elements, their ancestors, siblings and children, each
+  entry saying which it is (`relation`) and what ARIA role it carries (`role`, explicit or
+  implicit, `null` rather than a guess). The old field grew with the data rather than the
+  code — measured on a 354-element screen it was 61% of the context at 20.8KB while the
+  source being edited was 39%; it is now 452 bytes and 3%, and the source is 94%.
+- **`untrusted` entries carry the element's accessible name.** A name is screen-derived
+  content, so it sits with the rest of the screen's words under the injection-defense
+  boundary (contract section 3) rather than beside the structure.
+- `createEditContext` asks the guest once instead of twice. The selection and its
+  surroundings have to describe the same DOM; two calls left room for a render in between.
+
+> **This is not an additive minor.** A consumer written against edit context 0.1 must reject
+> 0.2 rather than read it. `@vivariumjs/agent` 0.3.0 is the updated consumer.
+
 ## 0.5.0 — 2026-09-20
 
 > Minor, additive for hosts. The only removal is on `/internal`, which carries no compatibility promise.
