@@ -108,7 +108,7 @@ consumer afterthought:
 
 `editContextVersion` follows the family's 0.X.X discipline: additive,
 backward-compatible fields bump the minor; anything else is a new
-contract revision agreed at the umbrella level first.
+contract revision, agreed across the family before any member ships it.
 
 **0.2 is not additive.** `screen.elementIds` is gone and `screen.elements`
 stands in its place, and `untrusted` entries gained `name`. A consumer written
