@@ -102,7 +102,8 @@ test("a stale synthesized id is recomputed after a structural move", () => {
 
 test("installStableIdentity assigns immediately and reassigns on mutation", async () => {
   const root = tree();
-  let mutationCallback: (() => void) | null = null;
+  // Assigned inside the fake observer, where control-flow narrowing cannot see it.
+  let mutationCallback = null as (() => void) | null;
   let observed: unknown = null;
   let disconnected = false;
   class FakeObserver {
