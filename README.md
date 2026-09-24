@@ -128,8 +128,9 @@ it; its data has to arrive through granted capabilities instead.
 A running instance of the family — propose, preview, approve, apply, roll back — is
 browsable as a gallery of archived runs: [vivarium-gallery](https://github.com/iyulab/vivarium-gallery)
 ([live](https://iyulab.github.io/vivarium-gallery/)). Each exhibit keeps the final artifacts, the
-turn ledger and the rollback record of an actual run, so the claims above can be checked
-rather than taken on faith.
+turn ledger and the rollback record of an actual run. A run archived with its changeset
+documents and approval records can be re-checked offline against them, without a server or a
+model; the index marks the runs that cannot.
 
 
 Vivarium is the family's namesake and its only browser-side member. It depends on **nothing** except, where changesets are exchanged, the [`vivarium-changeset`](https://github.com/iyulab/vivarium-changeset) contract. It is consumed by hosts directly, and its edit context is the input format of [`vivarium-agent`](https://github.com/iyulab/vivarium-agent).
