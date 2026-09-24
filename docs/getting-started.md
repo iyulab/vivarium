@@ -291,7 +291,7 @@ After `render()` every held ref is stale. The runtime cannot know which
 element of the new screen "is" the old one, so it says so instead of guessing:
 
 ```ts
-import { STALE_ELEMENT_REFERENCE } from "@vivariumjs/runtime";
+import { RpcError, STALE_ELEMENT_REFERENCE } from "@vivariumjs/runtime";
 
 async function contextFor(selectedRefs: string[]) {
   try {
@@ -324,7 +324,6 @@ happened without matching on the message text:
 
 ```ts
 import {
-  RpcError,
   ENDPOINT_CLOSED,
   GENERATED_CODE_FAULT,
   INVALID_PARAMS,

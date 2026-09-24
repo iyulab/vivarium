@@ -2,7 +2,7 @@
  * @vivariumjs/runtime/internal — protocol plumbing, NO stability promise.
  *
  * Everything here is implementation surface the runtime uses to build the
- * public contract (see src/index.ts): JSON-RPC 2.0 message shapes and
+ * public contract (the package root export): JSON-RPC 2.0 message shapes and
  * factories, transports, the RPC endpoint, capability binding, the
  * host/guest lifecycle bridges, sandbox bootstrap HTML, host method names,
  * the stable-identity runtime, and the edit-context builder.

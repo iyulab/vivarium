@@ -5,6 +5,22 @@
 **Status: published on npm — [`@vivariumjs/runtime`](https://www.npmjs.com/package/@vivariumjs/runtime), 0.x** (pre-1.0: minor versions may change the surface — see the [changelog](https://github.com/iyulab/vivarium/blob/main/CHANGELOG.md)). This document is the project's anchor: it fixes purpose, scope, and the small set of principles that implementation must honor. The sandbox core, capability bridge, stable identity layer, execution profiles, and the [edit context contract](https://github.com/iyulab/vivarium/blob/main/docs/edit-context.md) are implemented and covered by unit + real-browser e2e tests.
 
 **To embed it in your app, start with the [getting-started guide](https://github.com/iyulab/vivarium/blob/main/docs/getting-started.md)** (`npm install @vivariumjs/runtime`).
+The shortest path, for a browser page with a `#canvas` element:
+
+```ts
+import { mountSandbox, CapabilityRegistry } from "@vivariumjs/runtime";
+
+const registry = new CapabilityRegistry();
+registry.grant({ name: "greeting.get", description: "a line of text" }, () => "Hello");
+
+const sandbox = mountSandbox(document.getElementById("canvas") as HTMLElement, { registry });
+await sandbox.whenReady();
+await sandbox.render(`
+  export default async function mount(root, api) {
+    root.textContent = await api.invoke("greeting.get");
+  }
+`);
+```
 
 **Supported Node**: the package declares `engines.node >= 20`, and CI runs a fresh
 consumer install on that floor every build — the floor is executed, not just claimed.
@@ -28,7 +44,7 @@ A second, equally important problem: once generated UI is on screen, humans poin
 
 - **An execution sandbox.** Generated UI code runs in an isolated realm. It cannot reach the host page, host storage, or the network except through the bridge the host installs.
 - **A capability bridge.** The only channel between sandbox and host. The host decides what the generated code may do and hear: which data APIs it can call, which events it can emit, which host events it can subscribe to. Nothing is ambient.
-- **A primitive surface.** A curated set of UI building blocks (inputs, lists, layout, data views) that generated code composes. The set is versioned and enumerable, so agents can be taught exactly what exists.
+- **Execution profiles.** Which libraries generated code may import, and how its source is transformed before it runs, is data the host supplies — an embedded import map plus a source transform. What generated code can compose is therefore enumerable, not whatever a CDN happens to serve.
 - **An identity and inspection layer.** Every rendered element is addressable, under two names with two honest lifetimes. Its **ID** is an address: an ID the generated code authored (`data-viv-id`) is durable across re-renders and re-generations, while a synthesized one names a position in the current render. Its **reference** names that one element for as long as it lives and is never re-pointed — when the element is gone, the runtime refuses the reference instead of describing whatever took its place. Users can select elements; selections serialize into an **edit context** — a machine-readable description of "what the user is pointing at, in which screen, backed by which source" — consumable by any editing agent.
 - **A no-build path from generation to pixels.** Generated code renders without an offline compile/bundle/deploy cycle. Changes appear in seconds, not pipelines.
 
@@ -37,7 +53,7 @@ A second, equally important problem: once generated UI is on screen, humans poin
 - **Not a page-builder GUI.** There is no drag-and-drop editor here. Vivarium renders and inspects; authoring is someone else's job (a human, or an agent such as `vivarium-agent`).
 - **Not an agent.** Vivarium never calls a model. It produces edit contexts and consumes code; what happens between the two is out of scope.
 - **Not a data layer.** Vivarium does not know what a schema is. Data arrives through the capability bridge from whatever backend the host wires in.
-- **Not a design system.** The primitive surface defines *capability*, not *appearance*. Theming and visual identity belong to the host.
+- **Not a design system.** Profiles define *capability*, not *appearance*. Theming and visual identity belong to the host.
 
 ## Fixed principles
 
@@ -61,7 +77,11 @@ These are the anchors. An implementation that violates one of these is not Vivar
   way as `evt:<name>` notifications — granted by name, subscribed to by name.
 - Generated code: ES modules, default-exporting `mount(root, api)`. Execution
   profiles are pluggable data (embedded module import map + host-side source
-  transform); the reference profile is React + TSX via Sucrase.
+  transform); the reference profile is React + TSX via Sucrase. It is built
+  from this repository ([`test/react-tsx-profile.js`](https://github.com/iyulab/vivarium/blob/main/test/react-tsx-profile.js),
+  [`tools/build-profile-assets.ts`](https://github.com/iyulab/vivarium/blob/main/tools/build-profile-assets.ts))
+  and is not part of the npm package; without a profile, generated code is a
+  plain ES module working on the DOM.
 - Identity: deterministic structural ids (`viv:tag[n]/…`), authored
   `data-viv-id` preserved with descendants anchored under it; per-element
   references (`ref:<n>`, never reused) for holding a selection.
@@ -77,6 +97,9 @@ if the host page lets the sandbox scroll out of view.
 ## Deliberately undecided
 
 - Whether and how third-party component whitelisting works
+- A curated primitive surface (inputs, lists, layout, data views) above the
+  profiles — versioned and enumerable, so agents can be taught exactly what
+  exists. Not built: today generated code composes the DOM or a profile's library.
 - State handover across re-renders (the unmount path exists; re-render does not yet offer the outgoing module a save opportunity)
 
 ## Relationship to the Vivarium family

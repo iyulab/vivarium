@@ -4,6 +4,11 @@
 // package that npm-installs the packed tarball, then type-checked strictly
 // with lib.dom. Guards against examples that drift from the API.
 //
+// A reader follows the guide top to bottom, so each fence is checked with
+// only the fences before it: fence N compiles as fences 1..N in their own
+// module. Checking the whole guide as one file would let an import written
+// in a later section cover a name an earlier section uses (imports hoist).
+//
 // Compile-only, deliberately: the runtime surface is browser-side
 // (iframe + postMessage), so the examples cannot execute headless without a
 // fake DOM that would itself distort them. The failure class docs actually
@@ -40,7 +45,13 @@ function run(command: string, args: string[], cwd: string): void {
   }
 }
 
-const fences = extractFences(join(repoRoot, "docs", "getting-started.md"), "ts");
+// The README's quickstart is the first code a registry consumer reads (it is
+// the one document inside the tarball), so it is checked too — as its own
+// sequence, since it does not build on the guide.
+const documents = [
+  { label: "readme", fences: extractFences(join(repoRoot, "README.md"), "ts") },
+  { label: "guide", fences: extractFences(join(repoRoot, "docs", "getting-started.md"), "ts") },
+];
 const consumer = mkdtempSync(join(tmpdir(), "vivarium-docs-ts-"));
 try {
   // Consume the runtime the way a registry consumer would: pack a tarball
@@ -53,7 +64,13 @@ try {
     name: "docs-consumer", private: true, type: "module",
   }));
   run("npm", ["install", "--no-audit", "--no-fund", tarball], consumer);
-  writeFileSync(join(consumer, "consumer.ts"), fences.join("\n"));
+  const files = documents.flatMap(({ label, fences }) =>
+    fences.map((_, index) => {
+      const file = `${label}-through-fence-${String(index + 1).padStart(2, "0")}.ts`;
+      writeFileSync(join(consumer, file), fences.slice(0, index + 1).join("\n") + "\nexport {};\n");
+      return file;
+    }),
+  );
   writeFileSync(join(consumer, "tsconfig.json"), JSON.stringify({
     compilerOptions: {
       strict: true,
@@ -63,10 +80,11 @@ try {
       moduleResolution: "bundler",
       lib: ["es2022", "dom", "dom.iterable"],
     },
-    files: ["consumer.ts"],
+    files,
   }));
   run("node", [join(repoRoot, "node_modules", "typescript", "bin", "tsc"), "-p", consumer], consumer);
-  console.log(`PASS docs — ${fences.length} fences type-checked against the packed tarball`);
+  const counts = documents.map(({ label, fences }) => `${label} ${fences.length}`).join(" · ");
+  console.log(`PASS docs — fences (${counts}) type-checked against the packed tarball, each with only the fences before it`);
 } catch (error: any) {
   console.error(`FAIL — ${error.message}`);
   if (error.stdout) console.error(String(error.stdout));

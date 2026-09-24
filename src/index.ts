@@ -1,14 +1,15 @@
 /**
  * @vivariumjs/runtime — public consumer surface.
  *
- * This entry is the documented consumer contract (docs/getting-started.md,
- * docs/edit-context.md): mount a sandbox, grant capabilities, receive edit
+ * This entry is the documented consumer contract
+ * (https://github.com/iyulab/vivarium/blob/main/docs/getting-started.md,
+ * https://github.com/iyulab/vivarium/blob/main/docs/edit-context.md): mount a sandbox, grant capabilities, receive edit
  * contexts. Values here are the API this package promises compatibility for;
  * the exported types are the closure reachable from those values' signatures.
  *
  * Protocol plumbing (JSON-RPC message shapes, transports, endpoints,
  * lifecycle bridges, bootstrap HTML, stable-identity runtime) lives behind
- * "@vivariumjs/runtime/internal" — see src/internal.ts. It carries no
+ * "@vivariumjs/runtime/internal". It carries no
  * stability promise; symbols are promoted here only on demonstrated
  * consumer demand (demand-driven growth).
  *
