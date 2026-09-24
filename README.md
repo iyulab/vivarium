@@ -102,6 +102,21 @@ if the host page lets the sandbox scroll out of view.
   exists. Not built: today generated code composes the DOM or a profile's library.
 - State handover across re-renders (the unmount path exists; re-render does not yet offer the outgoing module a save opportunity)
 
+## Relationship to MCP Apps
+
+[MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview), the Model Context Protocol's UI
+extension, and Vivarium share an isolation and transport shape: generated UI runs in a sandboxed
+iframe and talks to its host over JSON-RPC on `postMessage`, starting with an initialize handshake.
+They answer different questions. MCP Apps delivers a server's UI into a conversation host.
+Vivarium makes every element of a generated screen addressable, turns what the user points at into
+an edit context, and lets the change travel as a reviewable changeset.
+
+Vivarium does not implement MCP Apps, and no MCP host is needed to use it. Connecting the two is
+adapter work on the consuming side. One difference decides what such an adapter can carry: an MCP
+App view may declare the network origins it needs (`_meta.ui.csp`), while Vivarium's sandbox opens
+no network source under any option. A view that depends on the network cannot run unchanged inside
+it; its data has to arrive through granted capabilities instead.
+
 ## Relationship to the Vivarium family
 
 A running instance of the family — propose, preview, approve, apply, roll back — is
