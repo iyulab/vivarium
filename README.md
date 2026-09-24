@@ -72,6 +72,12 @@ These are the anchors. An implementation that violates one of these is not Vivar
   the only channel. A host may let generated UI display images or media from
   `data:`/blob: URLs it builds inside the sandbox (`inlineSources`); no option
   opens a network source.
+- That boundary is one of origin and network, not of time. Whether generated
+  code that never yields stalls the host page is the engine's call: Chromium
+  runs the sandboxed frame apart from the page, Firefox on the page's own
+  thread. The opt-in watchdog reports and tears down code that stops
+  answering wherever the engine keeps the page running — see
+  [the guide](https://github.com/iyulab/vivarium/blob/main/docs/getting-started.md#code-that-never-yields).
 - Bridge: JSON-RPC 2.0 over postMessage; capabilities surface as enumerable
   `cap:<name>` methods granted by the host, and host events travel the other
   way as `evt:<name>` notifications — granted by name, subscribed to by name.
