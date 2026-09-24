@@ -151,3 +151,50 @@ test("a granted capability refuses one call with CAPABILITY_DENIED — distinct 
     (err: unknown) => err instanceof RpcError && err.code === METHOD_NOT_FOUND,
   );
 });
+
+test("revoking a capability takes effect on a bridge that is already up", async () => {
+  const registry = makeRegistry();
+  const [hostSide, guestSide] = createTransportPair();
+  const host = createHostBridge(hostSide, { registry });
+  const guest = createGuestBridge(guestSide);
+  await guest.initialize();
+
+  assert.deepEqual(await guest.invoke("data.query", { table: "t" }), [{ table: "t", row: 1 }]);
+  assert.equal(registry.revoke("data.query"), true);
+
+  // The registry is the complete list of what generated UI can do: once it
+  // says a capability is gone, the live endpoint must agree.
+  assert.ok(!host.endpoint.exposedMethods().includes("cap:data.query"));
+  await assert.rejects(
+    guest.invoke("data.query", { table: "t" }),
+    (err: unknown) => err instanceof RpcError && err.code === METHOD_NOT_FOUND,
+  );
+  // The other grant is untouched.
+  assert.equal(await guest.invoke("events.emit"), null);
+});
+
+test("a capability granted after the handshake becomes invocable", async () => {
+  const registry = makeRegistry();
+  const [hostSide, guestSide] = createTransportPair();
+  const host = createHostBridge(hostSide, { registry });
+  const guest = createGuestBridge(guestSide);
+  await guest.initialize();
+
+  registry.grant({ name: "math.double", description: "double a number" }, (params) => {
+    return (params as { value: number }).value * 2;
+  });
+  assert.ok(host.endpoint.exposedMethods().includes("cap:math.double"));
+  assert.equal(await guest.invoke("math.double", { value: 21 }), 42);
+});
+
+test("a closed bridge stops following the registry", async () => {
+  const registry = makeRegistry();
+  const [hostSide, guestSide] = createTransportPair();
+  const host = createHostBridge(hostSide, { registry });
+  const guest = createGuestBridge(guestSide);
+  await guest.initialize();
+  host.close();
+
+  registry.grant({ name: "late.grant", description: "after close" }, () => 1);
+  assert.ok(!host.endpoint.exposedMethods().includes("cap:late.grant"));
+});

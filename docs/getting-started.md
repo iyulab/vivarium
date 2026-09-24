@@ -151,6 +151,13 @@ Calling a capability that was never granted rejects: the method simply does
 not exist on the bridge (`METHOD_NOT_FOUND`) — the generated code cannot
 escalate.
 
+The registry stays authoritative for as long as the sandbox runs.
+`registry.revoke(name)` takes effect on the live bridge, so the next call to
+that capability is `METHOD_NOT_FOUND`, as if it had never been granted. A
+`grant` made after mount becomes invocable the same way. `api.capabilities`
+is a snapshot from the handshake; the bridge, not that list, decides what can
+be called now.
+
 ### Pushing host state in: events
 
 Capabilities are the generated code asking; events are the host telling.

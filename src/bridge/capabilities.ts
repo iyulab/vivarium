@@ -40,6 +40,11 @@ export interface CapabilityGrant {
   handler: MethodHandler;
 }
 
+/** A change to the granted capability set, as seen by a live bridge. */
+export type CapabilityChange =
+  | { kind: "grant"; name: string; handler: MethodHandler }
+  | { kind: "revoke"; name: string };
+
 const CAPABILITY_NAME_PATTERN = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)*$/;
 
 export function isValidCapabilityName(name: string): boolean {
@@ -49,6 +54,7 @@ export function isValidCapabilityName(name: string): boolean {
 export class CapabilityRegistry {
   private grants = new Map<string, CapabilityGrant>();
   private events = new Map<string, EventDescriptor>();
+  private listeners = new Set<(change: CapabilityChange) => void>();
 
   grant(descriptor: CapabilityDescriptor, handler: MethodHandler): void {
     if (!isValidCapabilityName(descriptor.name)) {
@@ -60,10 +66,33 @@ export class CapabilityRegistry {
       throw new Error(`capability already granted: ${descriptor.name}`);
     }
     this.grants.set(descriptor.name, { descriptor, handler });
+    this.notify({ kind: "grant", name: descriptor.name, handler });
   }
 
+  /**
+   * Withdraw a grant. Takes effect on every bridge already bound to this
+   * registry, not only on bridges created afterwards: the next call from the
+   * generated UI is METHOD_NOT_FOUND, exactly as if it had never been granted.
+   */
   revoke(name: string): boolean {
-    return this.grants.delete(name);
+    const removed = this.grants.delete(name);
+    if (removed) this.notify({ kind: "revoke", name });
+    return removed;
+  }
+
+  /**
+   * Follow changes to the granted set. This is how a live bridge keeps its
+   * exposed methods equal to the registry. Returns an unsubscribe function.
+   */
+  onChange(listener: (change: CapabilityChange) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(change: CapabilityChange): void {
+    for (const listener of [...this.listeners]) listener(change);
   }
 
   has(name: string): boolean {
@@ -111,19 +140,35 @@ export class CapabilityRegistry {
 }
 
 /**
- * Expose every granted capability on an endpoint as `cap:<name>` methods.
- * Returns an unbind function that removes exactly what was bound.
+ * Expose every granted capability on an endpoint as `cap:<name>` methods, and
+ * keep them in step with the registry: a later grant is exposed and a revoke
+ * is unexposed, so the endpoint never offers more (or less) than the registry
+ * lists. Returns an unbind function that stops following and removes exactly
+ * what is bound.
  */
 export function bindCapabilities(endpoint: RpcEndpoint, registry: CapabilityRegistry): () => void {
-  const bound: string[] = [];
-  for (const descriptor of registry.list()) {
-    const method = CAPABILITY_METHOD_PREFIX + descriptor.name;
-    const handler = registry.getHandler(descriptor.name);
-    if (!handler) continue;
+  const bound = new Set<string>();
+  const expose = (name: string, handler: MethodHandler): void => {
+    const method = CAPABILITY_METHOD_PREFIX + name;
     endpoint.expose(method, handler);
-    bound.push(method);
+    bound.add(method);
+  };
+  for (const descriptor of registry.list()) {
+    const handler = registry.getHandler(descriptor.name);
+    if (handler) expose(descriptor.name, handler);
   }
+  const unsubscribe = registry.onChange((change) => {
+    if (change.kind === "grant") {
+      expose(change.name, change.handler);
+    } else {
+      const method = CAPABILITY_METHOD_PREFIX + change.name;
+      endpoint.unexpose(method);
+      bound.delete(method);
+    }
+  });
   return () => {
+    unsubscribe();
     for (const method of bound) endpoint.unexpose(method);
+    bound.clear();
   };
 }

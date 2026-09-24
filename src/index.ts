@@ -36,7 +36,7 @@ export type {
 export type { InlineSources } from "./sandbox/bootstrap.ts";
 
 export { CapabilityRegistry } from "./bridge/capabilities.ts";
-export type { CapabilityDescriptor, CapabilityGrant, EventDescriptor } from "./bridge/capabilities.ts";
+export type { CapabilityChange, CapabilityDescriptor, CapabilityGrant, EventDescriptor } from "./bridge/capabilities.ts";
 
 export { EDIT_CONTEXT_VERSION } from "./inspect/edit-context.ts";
 export type {

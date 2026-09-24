@@ -97,7 +97,7 @@ export function createHostBridge(transport: Transport, options: HostBridgeOption
     options.onInitialized?.(handshake);
   });
 
-  bindCapabilities(endpoint, options.registry);
+  const unbindCapabilities = bindCapabilities(endpoint, options.registry);
 
   return {
     endpoint,
@@ -113,7 +113,10 @@ export function createHostBridge(transport: Transport, options: HostBridgeOption
       }
       endpoint.notify(EVENT_METHOD_PREFIX + event, { payload: payload === undefined ? null : payload });
     },
-    close: () => endpoint.close(),
+    close: () => {
+      unbindCapabilities();
+      endpoint.close();
+    },
   };
 }
 
