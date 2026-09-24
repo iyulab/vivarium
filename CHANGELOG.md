@@ -3,6 +3,33 @@
 All notable changes to `@vivariumjs/runtime` are documented here.
 Versioning: 0.x — minor for surface changes, patch for fixes.
 
+## 0.7.0 — 2026-09-24
+
+### Added
+- `CapabilityRegistry.onChange(listener)` — follow grants and revokes; returns an
+  unsubscribe function. Exported type `CapabilityChange`.
+
+### Fixed
+- `registry.revoke(name)` now takes effect on a bridge that is already up. Before,
+  the host bridge copied the granted handlers at construction, so after a revoke the
+  registry reported the capability as gone while the generated UI could still call it.
+  The next call is now `METHOD_NOT_FOUND`, the same as a capability that was never
+  granted. A `grant` made after mount becomes invocable on the live bridge too.
+  Closing the host bridge stops it following the registry.
+- Element names no longer lose the letter `s`. The accessible name reported by
+  `describeElements` and carried in the edit context (`untrusted[id].name`) had
+  every `s` removed, because the name's whitespace pattern lost its escape on the
+  way into the sandbox (`"Open orders"` came back as `"Open order "`). Whitespace
+  runs still collapse to one space.
+
+### Changed
+- README: a quickstart example (the one example inside the package), a section on how
+  Vivarium relates to MCP Apps, and corrected claims — the curated primitive surface is
+  listed as undecided rather than built, and the React + TSX reference profile is said to
+  be built from the repository, not shipped in the package.
+- Type comments point at published documentation URLs instead of files the package does
+  not contain.
+
 ## 0.6.0 — 2026-09-23
 
 ### Changed
