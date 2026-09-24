@@ -2,7 +2,7 @@
  * Edit context — the versioned public contract: a machine-readable
  * description of "what the user is pointing at, in which screen, backed by
  * which source", consumable by any editing agent. Documented in
- * docs/edit-context.md.
+ * https://github.com/iyulab/vivarium/blob/main/docs/edit-context.md.
  *
  * Injection defense is part of the contract: everything derived from screen
  * content (text, attribute values) is PHYSICALLY separated under
