@@ -29,6 +29,7 @@ export const METHOD_INSPECT_RESOLVE = "vivarium/inspect.resolve";
 export const METHOD_SELECTION_SET = "vivarium/selection.set";
 export const NOTIFICATION_SELECTION_CHANGED = "vivarium/selection.changed";
 export const NOTIFICATION_FAULT = "vivarium/fault";
+export const METHOD_PING = "vivarium/ping";
 
 /**
  * A fault the generated code raised after it mounted: an exception thrown
@@ -36,13 +37,20 @@ export const NOTIFICATION_FAULT = "vivarium/fault";
  * handled (`"unhandledrejection"`). A screen can render and still be broken;
  * this is how the host finds out.
  *
- * `message` and `stack` are authored by the generated code — treat them as
- * untrusted data, the same as an edit context's `untrusted` map (display
- * them, feed them to a model as fenced data, never interpret them). Both are
- * length-capped. `stack` is `null` when the thrown value carried none.
+ * For those two kinds, `message` and `stack` are authored by the generated
+ * code — treat them as untrusted data, the same as an edit context's
+ * `untrusted` map (display them, feed them to a model as fenced data, never
+ * interpret them). Both are length-capped. `stack` is `null` when the thrown
+ * value carried none.
+ *
+ * `"unresponsive"` is the runtime's own: the watchdog (see
+ * {@link SandboxOptions.watchdog}) found the generated code no longer
+ * answering, and the sandbox has been destroyed. Its `message` is written by
+ * the runtime; `stack` is `null`. It is delivered only when the watchdog is
+ * enabled.
  */
 export interface SandboxFault {
-  kind: "error" | "unhandledrejection";
+  kind: "error" | "unhandledrejection" | "unresponsive";
   message: string;
   stack: string | null;
 }
@@ -106,6 +114,26 @@ export interface SandboxOptions {
   inlineSources?: InlineSources;
   /** Timeout for host→guest requests (render, unmount). Default 10s. */
   requestTimeoutMs?: number;
+  /**
+   * Watch for generated code that stops answering — an endless loop, a
+   * synchronous computation that never yields. Once the handshake completes the
+   * host probes the sandbox; when it has gone `unresponsiveMs` without an
+   * answer, every `onFault` listener receives an `"unresponsive"` fault and the
+   * sandbox is destroyed (the handle then rejects like any destroyed handle).
+   * Mounting a fresh sandbox is the host's call: whatever the generated UI held
+   * in memory is gone either way.
+   *
+   * A late answer counts as an answer, so a host that was itself busy for a
+   * moment does not condemn a guest that is fine.
+   *
+   * This helps only where the engine runs the sandboxed frame apart from the
+   * host page. Firefox runs it on the host's own thread: while the generated
+   * code spins, the host — and this watchdog — cannot run either, so it
+   * detects nothing until the code yields on its own.
+   *
+   * Omitted: no watchdog.
+   */
+  watchdog?: { unresponsiveMs?: number };
 }
 
 /**
@@ -211,6 +239,7 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
   });
 
   let destroyed = false;
+  let stopWatchdog: (() => void) | null = null;
   let lastSource: { language: string; code: string } | null = null;
   const selectionListeners = new Set<(element: ElementDescriptor) => void>();
   const faultListeners = new Set<(fault: SandboxFault) => void>();
@@ -222,7 +251,7 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
     for (const listener of [...faultListeners]) listener(params as SandboxFault);
   });
 
-  return {
+  const handle: SandboxHandle = {
     iframe,
     bridge,
     whenReady: () => ready,
@@ -293,8 +322,75 @@ export function mountSandbox(container: SandboxContainerElement, options: Sandbo
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      stopWatchdog?.();
       bridge.close();
       iframe.remove();
     },
   };
+
+  if (options.watchdog) {
+    const unresponsiveMs = options.watchdog.unresponsiveMs ?? DEFAULT_UNRESPONSIVE_MS;
+    void ready.then(() => {
+      if (destroyed) return;
+      stopWatchdog = startWatchdog(
+        () => bridge.endpoint.request(METHOD_PING),
+        unresponsiveMs,
+        () => {
+          const fault: SandboxFault = {
+            kind: "unresponsive",
+            message: `the generated UI did not answer for ${unresponsiveMs}ms`,
+            stack: null,
+          };
+          // Listeners learn why before every call starts rejecting ENDPOINT_CLOSED.
+          for (const listener of [...faultListeners]) listener(fault);
+          handle.destroy();
+        },
+      );
+    });
+  }
+
+  return handle;
+}
+
+const DEFAULT_UNRESPONSIVE_MS = 5_000;
+
+/**
+ * Probe with one ping in flight at a time, checking twice per `unresponsiveMs`.
+ * A check that finds the ping still unanswered is a miss; two in a row fire.
+ * Any answer — however late — resets the count, so a host that was blocked
+ * itself (its timers and the guest's reply queued together) needs two more
+ * checks before it can conclude anything.
+ */
+function startWatchdog(
+  ping: () => Promise<unknown>,
+  unresponsiveMs: number,
+  onUnresponsive: () => void,
+): () => void {
+  let outstanding = false;
+  let misses = 0;
+  const send = () => {
+    outstanding = true;
+    ping().then(
+      () => {
+        outstanding = false;
+        misses = 0;
+      },
+      // A rejection is not an answer: the ping stays outstanding and the next
+      // checks count it. (Once the sandbox is destroyed the watchdog is stopped.)
+      () => {},
+    );
+  };
+  const timer = setInterval(() => {
+    if (!outstanding) {
+      send();
+      return;
+    }
+    misses += 1;
+    if (misses >= 2) {
+      clearInterval(timer);
+      onUnresponsive();
+    }
+  }, Math.max(1, Math.floor(unresponsiveMs / 2)));
+  send();
+  return () => clearInterval(timer);
 }

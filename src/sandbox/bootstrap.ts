@@ -217,6 +217,10 @@ function dispatchEvent(name, params) {
   for (const listener of [...set]) queueMicrotask(() => listener(payload));
 }
 
+// Liveness probe for the host's watchdog: answering at all is the whole
+// answer — a guest whose event loop is stuck cannot.
+handlers.set("vivarium/ping", () => null);
+
 handlers.set("vivarium/unmount", async () => {
   eventHandlers.clear();
   const state = unmountProvider ? await unmountProvider() : undefined;

@@ -8,14 +8,19 @@
  * This harness measures it instead of assuming it: the guest runs a bounded
  * busy loop after mounting, and the host counts its own timer ticks meanwhile.
  *
- * The loop is bounded (BUSY_MS) so an engine that shares the thread comes
- * back rather than hanging the run.
+ * Then the same with the watchdog on: a guest spinning longer than the
+ * watchdog's limit must be reported and torn down while it spins, and a guest
+ * that spins briefly and recovers must not be.
+ *
+ * Every loop is bounded so an engine that shares the thread comes back rather
+ * than hanging the run.
  *
  * Results land in window.__E2E__ like the other harnesses; an assertion may
  * carry `todo` — a known gap with no fix yet, reported but not counted.
  */
 import { mountSandbox } from "../src/sandbox/host.ts";
 import { CapabilityRegistry } from "../src/bridge/capabilities.ts";
+import { ENDPOINT_CLOSED } from "../src/bridge/protocol.ts";
 
 const BUSY_MS = 3000;
 const TICK_MS = 50;
@@ -85,6 +90,65 @@ async function main() {
   // The guest has yielded again; the bridge must still answer.
   const answered = await handle.requestUnmount().then(() => true, (err) => String(err && err.message || err));
   record("the guest answers the host again once it has stopped spinning", answered === true, answered === true ? undefined : answered);
+  handle.destroy();
+
+  const todo = new URLSearchParams(location.search).get("todo") ?? undefined;
+  await watchdogCondemnsASpinningGuest(stage, todo);
+  await watchdogSparesAGuestThatRecovers(stage);
+}
+
+/** Mount with the watchdog on and have the guest spin for `spinMs` once mounted. */
+async function spinner(stage, spinMs, unresponsiveMs) {
+  const registry = new CapabilityRegistry();
+  const handle = mountSandbox(stage, { registry, context: {}, watchdog: { unresponsiveMs } });
+  const faults = [];
+  handle.onFault((f) => faults.push({ kind: f.kind, message: f.message, at: performance.now() }));
+  await handle.whenReady();
+  await handle.render(`
+    export default function mount() {
+      setTimeout(() => {
+        const end = performance.now() + ${spinMs};
+        while (performance.now() < end) {}
+      }, 100);
+    }
+  `);
+  return { handle, faults, spinStart: performance.now() + 100 };
+}
+
+async function watchdogCondemnsASpinningGuest(stage, todo) {
+  const SPIN_MS = 6000;
+  const LIMIT_MS = 1000;
+  const { handle, faults, spinStart } = await spinner(stage, SPIN_MS, LIMIT_MS);
+  await new Promise((r) => setTimeout(r, 100 + SPIN_MS + 1500));
+  const unresponsive = faults.filter((f) => f.kind === "unresponsive");
+  const at = unresponsive[0] ? Math.round(unresponsive[0].at - spinStart) : null;
+  observations.watchdog = { spinMs: SPIN_MS, unresponsiveMs: LIMIT_MS, faultAtMs: at, faults: faults.length };
+  record(
+    `the watchdog reports a guest spinning past its ${LIMIT_MS}ms limit, while it spins`,
+    at !== null && at < SPIN_MS,
+    at === null ? "no unresponsive fault" : `fault ${at}ms into a ${SPIN_MS}ms spin`,
+    todo,
+  );
+  if (at !== null) {
+    record("the fault names the limit it was raised under", /1000ms/.test(unresponsive[0].message), unresponsive[0].message);
+    const closed = await handle.listIds().then(() => null, (e) => e && e.code);
+    record("after the fault the sandbox is destroyed", closed === ENDPOINT_CLOSED && stage.querySelector("iframe") === null, `rejected with ${closed}`);
+  } else {
+    // The engine held the host too: the guest has recovered by now, and the
+    // watchdog must not condemn it after the fact.
+    const answered = await handle.listIds().then(() => true, (e) => String(e && e.message || e));
+    record("a guest that recovered after holding the host is not condemned afterwards", answered === true && faults.length === 0,
+      answered === true ? `${faults.length} fault(s)` : answered);
+  }
+  handle.destroy();
+}
+
+async function watchdogSparesAGuestThatRecovers(stage) {
+  const { handle, faults } = await spinner(stage, 700, 2000);
+  await new Promise((r) => setTimeout(r, 100 + 700 + 2500));
+  const answered = await handle.listIds().then(() => true, (e) => String(e && e.message || e));
+  record("the watchdog spares a guest that spins below its limit and recovers", answered === true && faults.length === 0,
+    answered === true ? `${faults.length} fault(s)` : answered);
   handle.destroy();
 }
 

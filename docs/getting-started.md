@@ -420,18 +420,49 @@ stopFaults();
 ```
 
 `kind` is `"error"` (an exception thrown from a listener or timer) or
-`"unhandledrejection"` (a promise nobody handled). A throw during mount is
+`"unhandledrejection"` (a promise nobody handled) — plus `"unresponsive"` when
+the watchdog is on (below). A throw during mount is
 **not** reported here — it is `render()`'s `GENERATED_CODE_FAULT` rejection, and
 reporting it twice would count one failure as two. Subscribe before `render()`
 to see everything the render led to.
 
-`message` and `stack` are written by the generated code, so treat them the way
+For the first two, `message` and `stack` are written by the generated code, so treat them the way
 the edit context treats screen content: untrusted data to show or to hand a
 model inside a fence, never something to interpret. Both are length-capped, and
 `stack` is `null` when the thrown value had none (`throw "text"`).
 
 Together with `listIds()` and `describeElements()` this makes a complete
 headless check — render, interact, then read the ids, the text, and the faults.
+
+### Code that never yields
+
+A fault needs the generated code to get back to its event loop. An endless
+loop never does. Opt into the watchdog to hear about that too:
+
+```ts
+const watched = mountSandbox(container, { registry, watchdog: { unresponsiveMs: 5000 } });
+watched.onFault((fault) => {
+  if (fault.kind === "unresponsive") {
+    // The sandbox is already destroyed; mount a fresh one if you want the screen back.
+    console.warn(fault.message);
+  }
+});
+```
+
+Once the handshake completes, the host probes the sandbox. When it has gone
+`unresponsiveMs` without an answer (default 5000), listeners receive an
+`"unresponsive"` fault — its `message` is written by the runtime, `stack` is
+`null` — and the sandbox is destroyed, so every later call rejects with
+`ENDPOINT_CLOSED`. Remounting is left to the host: whatever the generated UI
+held in memory is gone either way. A late answer still counts as an answer, so
+a host that was busy itself for a moment does not condemn a guest that is fine.
+
+**This depends on the engine.** Chromium runs the sandboxed frame apart from
+the host page, so the page stays responsive while the generated code spins and
+the watchdog tears the frame down. Firefox runs it on the host page's own
+thread: while the code spins, the page — and the watchdog — cannot run at all,
+and nothing is detected until the code stops on its own. The e2e suite measures
+both engines on every push (see [Running the checks yourself](#running-the-checks-yourself)).
 
 ## Execution profiles (TSX and friends)
 

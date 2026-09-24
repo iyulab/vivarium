@@ -266,3 +266,81 @@ test("createEditContext asks the guest once, and passes its answer through uncha
   assert.equal(ctx.untrusted.b.text, "Save");
   handle.destroy();
 });
+
+// ── watchdog ──────────────────────────────────────────────────────────────
+const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function handshake(dom: ReturnType<typeof makeFakeDom>) {
+  dom.emit({ jsonrpc: "2.0", id: 1, method: "vivarium/initialize", params: { protocolVersion: "0.1" } });
+  await tick(1);
+  dom.emit({ jsonrpc: "2.0", method: "vivarium/initialized" });
+  await tick(1);
+}
+
+const pings = (dom: ReturnType<typeof makeFakeDom>) =>
+  dom.sent.filter((m) => (m as { method?: string }).method === "vivarium/ping") as Array<{ id: number }>;
+
+test("watchdog: a guest that stops answering gets an unresponsive fault, then the sandbox is destroyed", async () => {
+  const dom = makeFakeDom();
+  const handle = mountSandbox(dom.container, { registry: new CapabilityRegistry(), watchdog: { unresponsiveMs: 40 } });
+  const faults: Array<{ kind: string; closedWhenSeen: boolean }> = [];
+  handle.onFault((f) => {
+    // At delivery the handle is still live: the listener learns why first.
+    faults.push({ kind: f.kind, closedWhenSeen: dom.iframe.removedFlag() });
+  });
+  await tick(60);
+  assert.equal(pings(dom).length, 0, "no probing before the handshake");
+  await handshake(dom);
+  await tick(80);
+  assert.deepEqual(faults, [{ kind: "unresponsive", closedWhenSeen: false }]);
+  assert.equal(dom.iframe.removedFlag(), true);
+  assert.equal(pings(dom).length, 1, "one ping in flight at a time");
+  await assert.rejects(handle.listIds(), (e: unknown) => e instanceof RpcError && e.code === ENDPOINT_CLOSED);
+});
+
+test("watchdog: a guest that keeps answering is never condemned", async () => {
+  const dom = makeFakeDom();
+  const handle = mountSandbox(dom.container, { registry: new CapabilityRegistry(), watchdog: { unresponsiveMs: 40 } });
+  const faults: string[] = [];
+  handle.onFault((f) => faults.push(f.kind));
+  await handshake(dom);
+  const answered = new Set<number>();
+  const until = Date.now() + 200;
+  while (Date.now() < until) {
+    for (const p of pings(dom)) if (!answered.has(p.id)) {
+      answered.add(p.id);
+      dom.emit({ jsonrpc: "2.0", id: p.id, result: null });
+    }
+    await tick(5);
+  }
+  assert.deepEqual(faults, []);
+  assert.ok(answered.size >= 3, `expected repeated probing, saw ${answered.size}`);
+  handle.destroy();
+});
+
+test("watchdog: a late answer counts — one missed check alone does not fire", async () => {
+  const dom = makeFakeDom();
+  const handle = mountSandbox(dom.container, { registry: new CapabilityRegistry(), watchdog: { unresponsiveMs: 60 } });
+  const faults: string[] = [];
+  handle.onFault((f) => faults.push(f.kind));
+  await handshake(dom);
+  await tick(45); // past the first check (30ms), before the second (60ms)
+  dom.emit({ jsonrpc: "2.0", id: pings(dom)[0].id, result: null });
+  await tick(40);
+  assert.deepEqual(faults, []);
+  assert.equal(dom.iframe.removedFlag(), false);
+  handle.destroy();
+});
+
+test("watchdog: destroy stops the probing", async () => {
+  const dom = makeFakeDom();
+  const handle = mountSandbox(dom.container, { registry: new CapabilityRegistry(), watchdog: { unresponsiveMs: 20 } });
+  const faults: string[] = [];
+  handle.onFault((f) => faults.push(f.kind));
+  await handshake(dom);
+  handle.destroy();
+  const sentAtDestroy = dom.sent.length;
+  await tick(80);
+  assert.deepEqual(faults, []);
+  assert.equal(dom.sent.length, sentAtDestroy);
+});

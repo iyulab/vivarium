@@ -17,9 +17,9 @@
  * CI cannot turn green by quietly running one engine.
  *
  * Firefox runs a sandboxed srcdoc frame on the host page's thread, so a guest
- * that spins stalls the host there. That is measured, not assumed, and until
- * the runtime has an answer it is reported as a known gap (TODO) on Firefox
- * only — on Chromium the same assertion is a regression.
+ * that spins stalls the host there — and the watchdog with it. That is
+ * measured, not assumed, and reported as a known gap (TODO) on Firefox only;
+ * on Chromium the same assertions are regressions.
  *
  * Usage: npm run build && node tools/build-profile-assets.ts && node tools/run-e2e.ts [--require-firefox]
  */
@@ -144,7 +144,7 @@ const stopServer = () => {
 };
 
 const requireFirefox = process.argv.includes("--require-firefox");
-const FIREFOX_STALL = "Firefox runs the sandboxed frame on the host's thread and the runtime has no watchdog yet";
+const FIREFOX_STALL = "Firefox runs the sandboxed frame on the host's thread, so while the guest spins neither the host nor its watchdog can run";
 
 let failed = 0;
 const browsers: Browser[] = [];
