@@ -195,6 +195,7 @@ async function main() {
       followed.untrusted["viv:main[0]/button[2]"].text === "c",
     JSON.stringify(followed.selection),
   );
+
   const listedAgain = await handle.listIds();
   record(
     "refs: re-listing reissues the same reference for the same element",
@@ -240,6 +241,22 @@ async function main() {
     "refs: an id passed where a reference belongs is a caller error",
     notARef.rejected && notARef.matched && notARef.code === -32602,
     `code=${notARef.code} ${notARef.message}`,
+  );
+
+  // 6.7 names. The guest runtime reaches the sandbox as a string, so an escape in it can
+  // change meaning on the way (a regex's \s once shipped as a bare "s" and
+  // stripped every letter s from names). Judge the name byte for byte, with a
+  // text that holds the letter, runs of spaces, and a newline.
+  await handle.render(`
+    export default function mount(root) {
+      root.innerHTML = '<main><p>Status  shows\\n   shipped orders</p></main>';
+    }
+  `);
+  const [namedP] = await handle.describeElements(["viv:main[0]/p[0]"]);
+  record(
+    "names: the accessible name collapses whitespace and keeps every letter",
+    namedP && namedP.name === "Status shows shipped orders",
+    JSON.stringify(namedP && namedP.name),
   );
 
   // 6.8 interactive generated UI: listeners registered by generated code

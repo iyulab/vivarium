@@ -224,3 +224,26 @@ test("host events dispatch to api.on handlers uncaught, and a new render ends th
     "subscriptions are cleared before the new module mounts");
   assert.match(html, /throw new Error\("event not granted: " \+ name\)/, "api.on is fail-closed");
 });
+
+test("the guest runtime ships its escapes as written", async () => {
+  // The guest runtime is a template string. An escape inside a plain template
+  // literal is evaluated on the way into the string (`\s` becomes `s`), so the
+  // code that runs in the sandbox would silently differ from the code we
+  // read. Every source line of the template that holds a backslash must
+  // appear, byte for byte, in the document the sandbox loads.
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("./bootstrap.ts", import.meta.url), "utf8");
+  const start = source.indexOf("const GUEST_RUNTIME = ");
+  const end = source.indexOf("\n`;", start);
+  assert.ok(start >= 0 && end > start, "guest runtime template not found");
+  const escaped = source
+    .slice(start, end)
+    .split("\n")
+    .slice(1)
+    .filter((line) => line.includes("\\"));
+  assert.ok(escaped.length > 0, "expected at least one escape to guard");
+  const html = createBootstrapHtml();
+  for (const line of escaped) {
+    assert.ok(html.includes(line.trim()), `shipped guest runtime lost an escape: ${line.trim()}`);
+  }
+});

@@ -99,7 +99,7 @@ function buildImportMap(modules: Record<string, string>): string {
   return JSON.stringify({ imports }).replaceAll("<", "\\u003c");
 }
 
-const GUEST_RUNTIME = `
+const GUEST_RUNTIME = String.raw`
 const pending = new Map();
 const handlers = new Map();
 let nextId = 1;
