@@ -3,6 +3,18 @@
 All notable changes to `@vivariumjs/runtime` are documented here.
 Versioning: 0.x — minor for surface changes, patch for fixes.
 
+## 0.8.0 — 2026-09-24
+
+### Added
+- `watchdog` option on `mountSandbox`: once the handshake completes the host probes the sandbox, and when the generated code has gone `unresponsiveMs` (default 5000) without answering — an endless loop, a computation that never yields — `onFault` listeners receive a new `"unresponsive"` fault kind and the sandbox is destroyed. A late answer still counts, so a briefly busy host does not condemn a healthy guest. Off unless enabled, so existing hosts never see the new kind. It rescues the page only where the engine runs the sandboxed frame apart from the host page (Chromium); Firefox runs it on the host page's thread, where nothing can run while the code spins.
+- The real-browser e2e suite runs in Firefox as well as Chromium, and measures what a guest that never yields does to the host in each.
+
+### Changed
+- The readme now says which gallery runs can be re-checked offline, and against what, instead of implying every archived run can be.
+
+### Fixed
+- The edit-context declaration comment now links to the contract document by URL instead of a repository-relative path the installed package does not contain.
+
 ## 0.7.0 — 2026-09-24
 
 ### Added
