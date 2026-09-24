@@ -7,11 +7,21 @@
  *   test/e2e.html        sandbox core            (served — imports src/*.ts)
  *   test/e2e-react.html  react-tsx profile       (served — needs test/assets)
  *   test/e2e-file.html   classic build, file://  (opened from disk — needs dist)
+ *   test/e2e-runaway.html  a guest that never yields: does the host stall?
  *
- * The browser is whichever Chrome, Edge, or Chromium is installed:
- * playwright-core downloads nothing.
+ * Every harness runs in two engines, because the sandbox's isolation is the
+ * engine's: Chromium (whichever Chrome, Edge, or Chromium is installed) and
+ * Firefox (an installed Firefox, driven over WebDriver BiDi — `FIREFOX_PATH`
+ * points at one elsewhere). playwright-core downloads nothing. A missing
+ * Firefox is reported and skipped; `--require-firefox` makes it a failure, so
+ * CI cannot turn green by quietly running one engine.
  *
- * Usage: npm run build && node tools/build-profile-assets.ts && node tools/run-e2e.ts
+ * Firefox runs a sandboxed srcdoc frame on the host page's thread, so a guest
+ * that spins stalls the host there. That is measured, not assumed, and until
+ * the runtime has an answer it is reported as a known gap (TODO) on Firefox
+ * only — on Chromium the same assertion is a regression.
+ *
+ * Usage: npm run build && node tools/build-profile-assets.ts && node tools/run-e2e.ts [--require-firefox]
  */
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -19,7 +29,7 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chromium, type Browser } from "playwright-core";
+import { chromium, firefox, type Browser } from "playwright-core";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..");
 const PAGE_TIMEOUT_MS = 120_000;
@@ -59,7 +69,7 @@ async function waitUntilAnswering(url: string, server: ChildProcess) {
   throw new Error(`dev server did not answer ${url} within ${READY_TIMEOUT_MS / 1000}s`);
 }
 
-async function launch(): Promise<Browser> {
+async function launchChromium(): Promise<Browser> {
   const failures: string[] = [];
   for (const channel of ["chrome", "msedge", "chromium"]) {
     try {
@@ -71,7 +81,24 @@ async function launch(): Promise<Browser> {
   throw new Error("no browser to drive — install Chrome, Edge, or Chromium.\n" + failures.map((f) => `  ${f}`).join("\n"));
 }
 
-interface E2EResult { name: string; ok: boolean; detail: string | null }
+/** An installed Firefox over WebDriver BiDi, or the reasons none could be launched. */
+async function launchFirefox(): Promise<Browser | string[]> {
+  const failures: string[] = [];
+  const candidates: Array<{ label: string; executablePath?: string }> = [];
+  if (process.env.FIREFOX_PATH) candidates.push({ label: `FIREFOX_PATH`, executablePath: process.env.FIREFOX_PATH });
+  candidates.push({ label: "moz-firefox (default install location)" });
+  if (process.platform === "linux") candidates.push({ label: "/usr/bin/firefox", executablePath: "/usr/bin/firefox" });
+  for (const c of candidates) {
+    try {
+      return await firefox.launch({ channel: "moz-firefox", executablePath: c.executablePath, headless: true });
+    } catch (e) {
+      failures.push(`${c.label}: ${(e as Error).message.split("\n")[0]}`);
+    }
+  }
+  return failures;
+}
+
+interface E2EResult { name: string; ok: boolean; detail: string | null; todo?: string | null }
 
 /**
  * Open one harness and read its verdict.
@@ -92,10 +119,16 @@ async function judge(browser: Browser, label: string, url: string): Promise<numb
     await page.waitForFunction(() => (window as any).__E2E__?.done === true, null, { timeout: PAGE_TIMEOUT_MS });
     const { results } = (await page.evaluate(() => (window as any).__E2E__)) as { results: E2EResult[] };
     console.log(`\n# ${label}`);
-    for (const r of results) console.log(`${r.ok ? "ok" : "not ok"} - ${r.name}${r.ok || r.detail === null ? "" : ` — ${r.detail}`}`);
+    for (const r of results) {
+      const detail = r.detail === null || (r.ok && !r.todo) ? "" : ` — ${r.detail}`;
+      const todo = r.todo ? ` # TODO ${r.todo}${r.ok ? " (passing now — the marker can go)" : ""}` : "";
+      console.log(`${r.ok ? "ok" : "not ok"} - ${r.name}${detail}${todo}`);
+    }
     for (const e of pageErrors) console.log(`# page error (judged by the harness, not counted here): ${e}`);
-    const failedAssertions = results.filter((r) => !r.ok).length;
-    console.log(`# ${label}: ${results.length - failedAssertions}/${results.length} passed`);
+    // A failing assertion marked TODO is a known gap: reported, not counted.
+    const failedAssertions = results.filter((r) => !r.ok && !r.todo).length;
+    const known = results.filter((r) => !r.ok && r.todo).length;
+    console.log(`# ${label}: ${results.length - failedAssertions - known}/${results.length} passed${known ? `, ${known} known gap(s)` : ""}`);
     return failedAssertions;
   } finally {
     await page.close();
@@ -110,20 +143,43 @@ const stopServer = () => {
   else server.kill();
 };
 
+const requireFirefox = process.argv.includes("--require-firefox");
+const FIREFOX_STALL = "Firefox runs the sandboxed frame on the host's thread and the runtime has no watchdog yet";
+
 let failed = 0;
-let browser: Browser | null = null;
+const browsers: Browser[] = [];
 try {
   const base = `http://localhost:${port}`;
   await waitUntilAnswering(`${base}/test/e2e.html`, server);
-  browser = await launch();
-  failed += await judge(browser, "e2e.html (sandbox core)", `${base}/test/e2e.html`);
-  failed += await judge(browser, "e2e-react.html (react-tsx profile)", `${base}/test/e2e-react.html`);
-  failed += await judge(browser, "e2e-file.html (classic build, file://)", pathToFileURL(join(root, "test", "e2e-file.html")).href);
+  const fileUrl = pathToFileURL(join(root, "test", "e2e-file.html")).href;
+  const harnesses = (engine: string, runawayTodo?: string): Array<[string, string]> => [
+    [`${engine} · e2e.html (sandbox core)`, `${base}/test/e2e.html`],
+    [`${engine} · e2e-react.html (react-tsx profile)`, `${base}/test/e2e-react.html`],
+    [`${engine} · e2e-file.html (classic build, file://)`, fileUrl],
+    [
+      `${engine} · e2e-runaway.html (a guest that never yields)`,
+      `${base}/test/e2e-runaway.html${runawayTodo ? `?todo=${encodeURIComponent(runawayTodo)}` : ""}`,
+    ],
+  ];
+
+  const chrome = await launchChromium();
+  browsers.push(chrome);
+  for (const [label, url] of harnesses("chromium")) failed += await judge(chrome, label, url);
+
+  const ff = await launchFirefox();
+  if (Array.isArray(ff)) {
+    const reason = "no Firefox to drive — install Firefox or set FIREFOX_PATH\n" + ff.map((f) => `  ${f}`).join("\n");
+    if (requireFirefox) throw new Error(reason);
+    console.log(`\n# firefox: skipped — ${reason}`);
+  } else {
+    browsers.push(ff);
+    for (const [label, url] of harnesses("firefox", FIREFOX_STALL)) failed += await judge(ff, label, url);
+  }
 } catch (error) {
   console.error(`\nrun-e2e: ${(error as Error).message}`);
   failed = Math.max(failed, 1);
 } finally {
-  await browser?.close();
+  for (const b of browsers) await b.close();
   stopServer();
 }
 

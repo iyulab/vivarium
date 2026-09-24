@@ -500,14 +500,20 @@ npm run build && node tools/build-profile-assets.ts   # once: the classic build 
 npm run test:e2e                                       # opens every harness in a real browser
 ```
 
-`test:e2e` drives the Chrome, Edge, or Chromium already installed (it downloads
-none) and exits non-zero on any failed assertion; CI runs it on every push.
+`test:e2e` runs every harness in two engines — the Chrome, Edge, or Chromium
+already installed, and an installed Firefox over WebDriver BiDi (`FIREFOX_PATH`
+points at one elsewhere); it downloads no browser. It exits non-zero on any
+failed assertion. Without Firefox it reports that engine as skipped;
+`--require-firefox` makes that a failure, and CI runs it that way on every push.
+An assertion the harness marks TODO is a measured gap with no fix yet — shown,
+not counted.
 To watch one page instead, serve the repository and open it:
 
 ```
 node tools/dev-server.ts 8787          # strips types so the browser can import src/*.ts
 # then open http://localhost:8787/test/e2e.html          (sandbox core)
 #      and  http://localhost:8787/test/e2e-react.html    (react-tsx profile)
+#      and  http://localhost:8787/test/e2e-runaway.html  (a guest that never yields)
 # test/e2e-file.html is opened straight from disk (file://), no server
 ```
 

@@ -42,7 +42,9 @@ jobs:
       # e2e-file.html loads dist/vivarium.iife.js; e2e-react.html loads test/assets.
       - run: npm run build
       - run: node tools/build-profile-assets.ts
-      - run: npm run test:e2e
+      # Both engines: the runner image ships Firefox, and a run that quietly
+      # drove one would say nothing about the other's isolation.
+      - run: npm run test:e2e -- --require-firefox
 
   # Consumer-contact smoke: a fresh consumer package installs this
   # repo and imports the public surface — catches breakage that only shows up
